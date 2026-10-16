@@ -238,7 +238,9 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .m{padding:8px 10px}
   .m .v{font-size:18px}
   .m.lead .v{font-size:20px}
-  .cmp{grid-template-columns:170px minmax(0,1fr);gap:16px}
+  .cmp{grid-template-columns:240px minmax(0,1fr);gap:14px}
+  /* 資本構成図：列 240px（縮小率0.8）× 文字14px ≒ 11px（約8.4pt）以上で印刷 */
+  #stack svg text{font-size:14px!important}
   .eqn{gap:4px 14px}
   .chart-box{max-width:none}
   .eqn .t .v{font-size:17px}
@@ -259,6 +261,10 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   th:first-child,td:first-child{position:static}
   .btn,.del,.sel,.ref{display:none!important}
   .cf-card{break-before:page}
+  /* 年次キャッシュフロー表は全行を1ページに収める */
+  #cf{font-size:10px;line-height:1.3}
+  #cf td,#cf th{padding:2px 8px}
+  #cf tr.sec td{padding-top:5px;font-size:10px}
   .f input:disabled,.f select:disabled{color:var(--ink)}
   .jc .draw-line{animation:none;stroke-dashoffset:0}
   .jc .fade{animation:none;opacity:1}
