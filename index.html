@@ -482,6 +482,7 @@ function migrate(saved){
   if(s.ver===8){
     s.manual=Object.fromEntries(LINKED.map(k=>[k,true])); s.rentModel='legacy';
     s.landVal=null; s.bldgVal=null; s.siteM2=null; s.evictMo=0; s.evictTax=0; s.evictLoan=0; s.bidBasis=0;
+    if(s.N===undefined) s.N=5; if(s.io===undefined) s.io=2;                       // 新規の初期値（3年・3年）ではなく従来の値で読む
     if(s.uses) s.uses=Object.fromEntries(Object.entries(s.uses).map(([k,c])=>[k,{keep:(USE_DEF[k]||{}).keep,up:(USE_DEF[k]||{}).up,...c}]));
     s.ver=9;
   }
@@ -736,11 +737,11 @@ const FIELDS=[
   ['amFee','AM期中報酬','%/年',0,0.05],['spc','SPC運営費','万円/年',0,10]]],
  ['融資',[
   ['ltv','取得LTV','%',70,1],['cltv','改修費の融資割合','%',70,1],
-  ['rate','金利','%',2.0,0.05],['amort','返済期間','年',30,1],['io','元本据置','年',2,1]]],
+  ['rate','金利','%',2.0,0.05],['amort','返済期間','年',30,1],['io','元本据置','年',3,1]]],
  ['出口',[
   ['saleMode','売却価格の決め方','',0,1,['キャップレートで算出','金額を指定']],
   ['saleBasis','キャップレートを掛ける収益','',1,1,['NOI（Capex控除前）','NCF（Capex控除後）']],
-  ['exitCap','出口キャップレート','%',4.3,0.05],['salePriceIn','売却価格','万円',75000,100],['N','保有期間','年',5,1],
+  ['exitCap','出口キャップレート','%',4.3,0.05],['salePriceIn','売却価格','万円',75000,100],['N','保有期間','年',3,1],
   ['sale','売却費用','%',3,0.5],['disc','割引率（NPV）','%',7,0.5],['target','目標IRR','%',10,0.5],
   ['bidBasis','目標IRR・指値の基準','',0,1,['税引後IRR','税引前IRR']]]],
  ['税金',[
