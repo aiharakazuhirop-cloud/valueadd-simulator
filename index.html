@@ -3,33 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1e2124">
 <title>Value-Add Return Simulator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+/* 配色は端末のライト／ダーク設定に関係なく常にダーク（画面・印刷とも同じ） */
 :root{
-  --bg:#e7e8ea; --surface:#f5f5f6; --surface-2:#ecedef; --ink:#1f2226; --muted:#5b6168; --line:#cfd2d6;
-  --accent:#94701f; --accent-soft:rgba(148,112,31,.16); --pos:#2c7556; --pos-soft:rgba(44,117,86,.14);
-  --neg:#b0453a; --neg-soft:rgba(176,69,58,.13); --bar:#7d8791;
-  --sans:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
-  --serif:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;
-  box-sizing:border-box;
-  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --bg:#1e2124; --surface:#272b2f; --surface-2:#2f3439; --ink:#e9e7e2; --muted:#9ba1a7; --line:#3a3f45;
-    --accent:#d4a94e; --accent-soft:rgba(212,169,78,.17); --pos:#72c29a; --pos-soft:rgba(114,194,154,.15);
-    --neg:#e3806f; --neg-soft:rgba(227,128,111,.15); --bar:#5f6870;
-  }
-}
-:root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#1e2124; --surface:#272b2f; --surface-2:#2f3439; --ink:#e9e7e2; --muted:#9ba1a7; --line:#3a3f45;
   --accent:#d4a94e; --accent-soft:rgba(212,169,78,.17); --pos:#72c29a; --pos-soft:rgba(114,194,154,.15);
   --neg:#e3806f; --neg-soft:rgba(227,128,111,.15); --bar:#5f6870;
+  --sans:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --serif:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
@@ -56,8 +46,8 @@ legend{font-weight:700;font-size:13px;padding:0;margin-bottom:8px;color:var(--ac
 .f input{width:100%;min-width:0;font:inherit;font-size:14px;color:var(--ink);background:transparent;border:0;padding:6px 4px 6px 9px;text-align:right}
 .f .u{font-size:11px;color:var(--muted);padding-right:8px;white-space:nowrap}
 
-main{display:grid;gap:20px;min-width:0}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+main{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;min-width:0}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .m{background:var(--surface);padding:14px 16px}
 .m .k{font-size:12px;color:var(--muted)}
 .m .v{font-size:24px;font-weight:700;letter-spacing:.01em;line-height:1.3}
@@ -67,7 +57,7 @@ main{display:grid;gap:20px;min-width:0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
 .card h2{font-size:15px;margin:0 0 4px;font-weight:700}
 .card .sub{color:var(--muted);font-size:12px;margin:0 0 12px}
-.charts{display:grid;gap:20px}
+.charts{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
 .f select{width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:transparent;border:0;padding:6px 8px}
 .f select option{background:var(--surface);color:var(--ink)}
 .f.off{opacity:.42}
@@ -102,9 +92,11 @@ main{display:grid;gap:20px;min-width:0}
 .cv{font-size:11px;color:var(--muted);text-align:right;margin-top:2px;min-height:1.2em}
 td small{display:block;font-size:11px;color:var(--muted);font-weight:400}
 .acq-info{display:grid;gap:4px;margin-top:10px;font-size:12.5px;padding:10px 12px;border-radius:8px;background:var(--surface-2)}
-.acq-info div{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.acq-info div{display:grid;grid-template-columns:8.6em minmax(0,1fr);gap:2px 8px;align-items:baseline}
 .acq-info span{color:var(--muted)}
-.acq-info b{text-align:right}
+.acq-info b{text-align:left;font-weight:700}
+.acq-info b small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+.acq-info .msg{display:block}
 .acq-info .warn,.acq-info .warn b{color:var(--neg)}
 .sched{margin-top:10px;font-size:12.5px;padding:8px 10px;border-radius:6px;background:var(--surface-2)}
 .ctab tr.tot td{border-top:1px solid var(--ink);font-weight:700}
@@ -119,7 +111,7 @@ td small{display:block;font-size:11px;color:var(--muted);font-weight:400}
 .stmt tr.fin td{font-weight:700;color:var(--accent);font-size:15px;border-bottom:0}
 .eqn+.eqn{padding-top:10px;border-top:1px dashed var(--line)}
 .eqn .t.mid .v{color:var(--ink)}
-.rbar .tax{background:var(--neg);color:#fff}
+.rbar .tax{background:var(--neg);color:#1e2124}
 .chart-box{max-width:900px}
 
 .notes{list-style:none;margin:0;padding:0;display:grid;gap:8px}
@@ -145,8 +137,22 @@ td.neg{color:var(--neg)}
 .sens td.base{outline:2px solid var(--accent);outline-offset:-2px;font-weight:700}
 .sens th.corner{font-size:11px;color:var(--muted);text-align:left}
 
-.cmp{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:28px;align-items:center}
-@media (max-width:860px){.cmp{grid-template-columns:1fr}}
+/* 主要指標は結果側の幅に応じて 6列／3列／2列（半端な空きマスを出さない） */
+@media (min-width:1200px),(min-width:876px) and (max-width:920px){.metrics{grid-template-columns:repeat(6,1fr)}}
+@media (max-width:520px){.metrics{grid-template-columns:repeat(2,1fr)}}
+.cmp-card{container-type:inline-size;container-name:res}
+.cmp{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:20px;align-items:center}
+/* カードの幅が足りないときは図を上、表を下に並べる（印刷には適用しない） */
+@media screen{@container res (max-width:760px){.cmp{grid-template-columns:minmax(0,1fr)} #stack{max-width:300px;width:100%;margin:0 auto}}}
+@media screen{.ctab.rent td,.ctab.rent th{padding-left:6px;padding-right:6px}}
+/* 狭い画面では、横長のグラフは文字が読める幅で描いて横スクロールさせる（印刷には適用しない） */
+.chart-scroll svg{display:block}
+@media screen and (max-width:760px){
+  .chart-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #jcurve svg,#noiChart svg{width:720px;max-width:none}
+  #bridge svg{width:540px;max-width:none}
+  .chart-scroll::after{content:'← 横にスクロールできます →';display:block;text-align:center;font-size:11px;color:var(--muted);margin-top:4px;position:sticky;left:0;width:calc(100vw - 80px)}
+}
 .result{display:grid;gap:12px;padding:2px 0 22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
 .eqn{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px}
 .eqn .t{display:flex;flex-direction:column}
@@ -198,16 +204,12 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 .auto-formula b{color:var(--ink);font-weight:700}
 .btn.wide{grid-column:1/-1;width:100%}
 .print-head{display:none}
-@page{size:A4;margin:12mm}
+/* 印刷も画面と同じダーク。用紙の余白（12mm）は残し、@page の背景で余白部分も同じ色に塗る（Chrome）。
+   print-color-adjust:exact で「背景のグラフィック」をオフにしても背景色・グラフの色を出す */
+@page{size:A4;margin:12mm;background:#1e2124}
 @media print{
-  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
-    color-scheme:light;
-    --bg:#fff; --surface:#fff; --surface-2:#f2f3f4; --ink:#1f2226; --muted:#5b6168; --line:#cfd2d6;
-    --accent:#94701f; --accent-soft:rgba(148,112,31,.16); --pos:#2c7556; --pos-soft:rgba(44,117,86,.14);
-    --neg:#b0453a; --neg-soft:rgba(176,69,58,.13); --bar:#7d8791;
-  }
-  html,body{background:#fff}
-  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{background:var(--bg)}
+  html,body,*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-size:11px}
   .wrap{max-width:none;padding:0}
   .print-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;border-bottom:2px solid var(--ink);padding-bottom:6px;margin-bottom:12px}
@@ -225,7 +227,8 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .m{padding:8px 10px}
   .m .v{font-size:18px}
   .m.lead .v{font-size:20px}
-  .cmp{grid-template-columns:200px minmax(0,1fr);gap:16px}
+  .cmp{grid-template-columns:170px minmax(0,1fr);gap:16px}
+  .eqn{gap:4px 14px}
   .chart-box{max-width:none}
   .eqn .t .v{font-size:17px}
   .eqn .t.final .v{font-size:24px}
@@ -239,6 +242,9 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .card{padding:12px 14px}
   .scroll{overflow:visible}
   table{font-size:10.5px}
+  th,td{padding:3px 8px}
+  .stmt td{padding:4px 10px}
+  .sens td,.sens th{padding:3px 6px}
   th:first-child,td:first-child{position:static}
   .btn,.del,.sel{display:none!important}
   .f input:disabled,.f select:disabled{color:var(--ink)}
@@ -267,7 +273,7 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
     <main>
       <section class="metrics" id="metrics" aria-label="主要指標"></section>
 
-      <section class="card">
+      <section class="card cmp-card">
         <h2>最終収益と取得時・出口時の比較</h2>
         <p class="sub">上段は投じた資金・戻った資金・税金の差し引き。下段は資本構成と主要指標の比較（出口時は売却年の値、NOIは売却価格の算定に使う翌年NOI）。</p>
         <div class="result" id="result"></div>
@@ -290,7 +296,7 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
       <section class="card jc">
         <h2>エクイティ累積キャッシュフロー（Jカーブ・税引後）</h2>
         <p class="sub">取得と改修で投資額が最も深くなり、運営収入と売却で回収されるまでの推移。</p>
-        <div id="jcurve"></div>
+        <div id="jcurve" class="chart-scroll"></div>
       </section>
 
       <section class="card">
@@ -303,12 +309,12 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
         <section class="card">
           <h2>価値創造ブリッジ</h2>
           <p class="sub">総事業費に対し、安定稼働後のNOIを出口時の利回りで評価した価値（賃料上昇を除く）。</p>
-          <div id="bridge" class="chart-box"></div>
+          <div id="bridge" class="chart-box chart-scroll"></div>
         </section>
         <section class="card">
           <h2>月次NOIと稼働率の推移</h2>
           <p class="sub">帯は事業フェーズ（赤の濃い帯は工期延長）。棒が月次NOI、線が稼働率。</p>
-          <div id="noiChart" class="chart-box"></div>
+          <div id="noiChart" class="chart-box chart-scroll"></div>
         </section>
       </div>
 
@@ -805,11 +811,11 @@ function renderInputSums(r){
   updateConv();
   const rr=r.gfaT>0?r.nraT/r.gfaT:null;
   $('acqInfo').innerHTML=r.gfaT>0
-    ? `<div><span>延床坪単価</span><b>${(pr/r.gfaT).toFixed(1)}万円/坪（${(pr/r.gfaM2).toFixed(1)}万円/㎡）</b></div>
-       <div><span>専有坪単価</span><b>${r.nraT>0?(pr/r.nraT).toFixed(1)+'万円/坪（'+(pr/(r.nraT/0.3025)).toFixed(1)+'万円/㎡）':'—'}</b></div>
-       <div class="${rr>1||rr<0.5?'warn':''}"><span>全体レンタブル比</span><b>${pct(rr)}（専有 ${r.nraT.toFixed(1)}坪 ÷ 延床 ${r.gfaT.toFixed(1)}坪）</b></div>
-       ${r.rr.above!==null?`<div class="${r.rr.above>1?'warn':''}"><span>地上レンタブル比</span><b>${pct(r.rr.above)}（地上専有 ${r.rr.nraAbove.toFixed(1)}坪 ÷ 地上延床 ${r.rr.gfaAbove.toFixed(1)}坪）</b></div>`:''}${rr>1?'<div class="warn">専有面積が延床面積を上回っています。面積の入力を確認してください。</div>':''}`
-    : '<div>延床面積を入力すると坪単価とレンタブル比を表示します。</div>';
+    ? `<div><span>延床坪単価</span><b>${(pr/r.gfaT).toFixed(1)}万円/坪<small>${(pr/r.gfaM2).toFixed(1)}万円/㎡</small></b></div>
+       <div><span>専有坪単価</span><b>${r.nraT>0?(pr/r.nraT).toFixed(1)+'万円/坪<small>'+(pr/(r.nraT/0.3025)).toFixed(1)+'万円/㎡</small>':'—'}</b></div>
+       <div class="${rr>1||rr<0.5?'warn':''}"><span>全体レンタブル比</span><b>${pct(rr)}<small>専有 ${r.nraT.toFixed(1)}坪 ÷ 延床 ${r.gfaT.toFixed(1)}坪</small></b></div>
+       ${r.rr.above!==null?`<div class="${r.rr.above>1?'warn':''}"><span>地上レンタブル比</span><b>${pct(r.rr.above)}<small>地上専有 ${r.rr.nraAbove.toFixed(1)}坪 ÷ 地上延床 ${r.rr.gfaAbove.toFixed(1)}坪</small></b></div>`:''}${rr>1?'<div class="warn msg">専有面積が延床面積を上回っています。面積の入力を確認してください。</div>':''}`
+    : '<div class="msg">延床面積を入力すると坪単価とレンタブル比を表示します。</div>';
   r.units.forEach((u,i)=>{ const el=$('us-'+i); if(!el) return;
     el.textContent=`${u.n}区画・${tm(u.n*u.area)}　月額 ${man(u.cur)}万円 → ${man(u.post)}万円（${u.cur>0?(u.post>=u.cur?'+':'')+((u.post/u.cur-1)*100).toFixed(1)+'%':'—'}）`; });
   const area=r.units.reduce((a,u)=>a+u.n*u.area,0), cnt=r.units.reduce((a,u)=>a+u.n,0);
@@ -937,7 +943,9 @@ function fitBarLabels(){
   }).join('');
   out.style.height=outs.length?`${OUT_TOP+20}px`:'0px';
 }
-window.addEventListener('resize',fitBarLabels);
+// 結果欄の幅が変わったら（初回の描画直後・画面幅の変更・フォントの読み込み後など）帯のラベル位置を計算し直す
+if(window.ResizeObserver) new ResizeObserver(()=>fitBarLabels()).observe(document.getElementById('result'));
+else window.addEventListener('resize',fitBarLabels);
 
 function drawStack(r){
   const W=300,H=330,pad={t:44,b:42}, ih=H-pad.t-pad.b, bw=86, xs=[34,180];
@@ -953,7 +961,7 @@ function drawStack(r){
     let y=base; const x=xs[i];
     c.parts.forEach(([lab,v,col])=>{
       const h=Math.max(0,sc(v)); y-=h; if(h<=0) return;
-      const dark=lab==='エクイティ', tc=dark?'#1e2124':(lab==='譲渡税'?'#fff':'var(--ink)');
+      const dark=lab==='エクイティ', tc=dark||lab==='譲渡税'?'#1e2124':'var(--ink)';
       s+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${col}"/>`;
       if(h>28) s+=`<text x="${x+bw/2}" y="${y+h/2-2}" text-anchor="middle" class="lbl" style="fill:${tc}">${lab}</text><text x="${x+bw/2}" y="${y+h/2+13}" text-anchor="middle" style="fill:${tc}">${yen(v)}</text>`;
       if(lab==='エクイティ') tops.push({y,h,x});
