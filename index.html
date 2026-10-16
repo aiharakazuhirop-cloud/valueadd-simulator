@@ -263,17 +263,20 @@ const LT_RATE=0.20315, ST_RATE=0.3963;
 const USE_DEF={office:{stab:95,L:12,fr:3},resi:{stab:95,L:6,fr:0},retail:{stab:95,L:9,fr:2}};
 const USE_NAME={office:'オフィス',resi:'住宅',retail:'店舗'};
 
-const BLD_DEF={floors:8,typArea:35,f1use:'retail',f1Area:30,officeRatio:50,resiUnit:7.5,
+const BLD_DEF={floors:8,bFloors:0,bUse:'retail',bArea:25,bRate:70,typArea:35,f1use:'retail',f1Area:30,officeRatio:50,resiUnit:7.5,
   price:{office:[10000,12500],resi:[9000,11000],retail:[15000,15000]}};
 function floorPlan(st){
   const b=st.bld||BLD_DEF, F=Math.max(1,Math.round(+b.floors||1)), typ=F-1, pt=Math.round(+st.ptype||0);
   const ratio=Math.min(100,Math.max(0,+b.officeRatio||0));
   const of=pt===0?typ:pt===1?0:Math.round(typ*ratio/100);
-  return {F,typ,of,rf:typ-of};
+  const B=Math.max(0,Math.min(10,Math.round(+b.bFloors||0)));
+  return {F,typ,of,rf:typ-of,B};
 }
 function genUnits(st){
-  const b=st.bld||BLD_DEF, pr=b.price||BLD_DEF.price, {F,of,rf}=floorPlan(st), A=+b.typArea||0, ru=+b.resiUnit||7.5, out=[];
+  const b=st.bld||BLD_DEF, pr=b.price||BLD_DEF.price, {F,of,rf,B}=floorPlan(st), A=+b.typArea||0, ru=+b.resiUnit||7.5, out=[];
   const fl=(a,z)=>a===z?`${a}F`:`${a}〜${z}F`;
+  if(B>0&&b.bUse&&b.bUse!=='none'&&+b.bArea>0){ const u=b.bUse, k=Math.max(0,+b.bRate||0)/100;
+    out.push({name:`${USE_NAME[u]} ${B===1?'B1F':`B1〜B${B}F`}`,use:u,n:B,area:+b.bArea,cur:Math.round(pr[u][0]*k),post:Math.round(pr[u][1]*k)}); }
   if(b.f1use!=='none'&&+b.f1Area>0){ const u=b.f1use, a1=+b.f1Area;
     if(u==='resi'){ const n=Math.max(1,Math.round(a1/ru)); out.push({name:'住宅 1F',use:'resi',n,area:a1/n,cur:pr.resi[0],post:pr.resi[1]}); }
     else out.push({name:`${USE_NAME[u]} 1F`,use:u,n:1,area:a1,cur:pr[u][0],post:pr[u][1]}); }
@@ -499,6 +502,10 @@ function unitsHTML(){
       ${numF('b-typArea','data-b="typArea"','基準階専有面積','坪/階',b.typArea,0.5,'t')}
       <div class="f" id="w-b-f1use"><label for="b-f1use">1階の用途</label><div class="in"><select id="b-f1use" data-b="f1use">${selOpts([['retail','店舗'],['office','オフィス'],['resi','住宅'],['none','なし（共用部のみ）']],b.f1use)}</select></div></div>
       ${numF('b-f1Area','data-b="f1Area"','1階専有面積','坪',b.f1Area,0.5,'t')}
+      ${numF('b-bFloors','data-b="bFloors"','地下階数','階',b.bFloors,1)}
+      <div class="f" id="w-b-bUse"><label for="b-bUse">地下の用途</label><div class="in"><select id="b-bUse" data-b="bUse">${selOpts([['retail','店舗'],['office','オフィス'],['none','賃貸なし（機械室等）']],b.bUse)}</select></div></div>
+      ${numF('b-bArea','data-b="bArea"','地下専有面積','坪/階',b.bArea,0.5,'t')}
+      ${numF('b-bRate','data-b="bRate"','地下の坪単価（地上比）','%',b.bRate,5)}
       ${numF('b-officeRatio','data-b="officeRatio"','オフィス比率（2階以上）','%',b.officeRatio,5)}
       ${numF('b-resiUnit','data-b="resiUnit"','住戸面積','坪/戸',b.resiUnit,0.5,'t')}
     </div>
@@ -506,7 +513,7 @@ function unitsHTML(){
     <div class="ptab"><div class="ptab-h"><span>坪単価</span><span>現況</span><span>改修後</span></div>
       ${['office','resi','retail'].map(k=>`<div class="ptab-r" id="pr-${k}"><span>${USE_NAME[k]}</span>${[0,1].map(i=>`<div><div class="in"><input type="number" inputmode="decimal" step="100" data-bp="${k}" data-bi="${i}" data-cvk="p" value="${b.price[k][i]}" aria-label="${USE_NAME[k]}の${i?'改修後':'現況'}坪単価"><span class="u">円/坪</span></div><div class="cv"></div></div>`).join('')}</div>`).join('')}
     </div>
-    <p class="hint">坪単価は共益費込みの月額（円/坪）。オフィスは下層階、住宅は上層階から割り当てます。</p>`;
+    <p class="hint">坪単価は共益費込みの月額（円/坪）。オフィスは下層階、住宅は上層階から割り当てます。地下の坪単価は、地下の用途の単価に地上比を掛けて計算します。</p>`;
   } else {
     h+=`<p class="hint" style="margin-top:10px">月額賃料 ＝ 区画数 × 専有面積 × 坪単価（共益費込みの月額）。</p>
     ${state.units.map((u,i)=>`<div class="unit">
@@ -602,13 +609,16 @@ function syncFields(){
     $('w-b-officeRatio').classList.toggle('hide',+state.ptype!==2);
     const no=state.bld.f1use==='none'; $('w-b-f1Area').classList.toggle('off',no); $('b-f1Area').disabled=no;
     $('w-b-resiUnit').classList.toggle('hide',!used.has('resi'));
+    const nb=!(Math.round(+state.bld.bFloors||0)>0), bn=state.bld.bUse==='none';
+    ['bUse','bArea','bRate'].forEach(k=>$('w-b-'+k).classList.toggle('hide',nb));
+    ['bArea','bRate'].forEach(k=>{ $('w-b-'+k).classList.toggle('off',bn); $('b-'+k).disabled=bn; });
   }
 }
 function drawSection(){
   const el=$('bldSec'); if(!el) return;
-  const b=state.bld, {F,of,rf,typ}=floorPlan(state);
+  const b=state.bld, {F,of,rf,typ,B}=floorPlan(state);
   const col={office:'var(--accent)',resi:'var(--pos)',retail:'var(--muted)',none:'var(--line)'};
-  const fh=Math.max(8,Math.min(22,240/F)), W=300, x0=36, bw=176, top=8, H=top+fh*F+24;
+  const fh=Math.max(8,Math.min(22,240/(F+B))), W=300, x0=36, bw=176, top=8, H=top+fh*(F+B)+(B?10:24);
   let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="用途の階構成">`;
   for(let f=1;f<=F;f++){
     const u=f===1?b.f1use:(f-1<=of?'office':'resi'), a=f===1?(u==='none'?0:+b.f1Area):+b.typArea;
@@ -617,9 +627,19 @@ function drawSection(){
     if(fh>=13||f===1||f===F) s+=`<text x="${x0-6}" y="${y+fh/2+3}" text-anchor="end">${f}F</text>`;
     if(fh>=14) s+=`<text x="${x0+8}" y="${y+fh/2+3}" class="lbl" style="font-size:11px">${u==='none'?'共用部':USE_NAME[u]}${a?`　${a}坪（${(a/0.3025).toFixed(0)}㎡）`:''}</text>`;
   }
-  s+=`<line x1="${x0-10}" x2="${x0+bw+10}" y1="${top+fh*F}" y2="${top+fh*F}" stroke="var(--ink)" stroke-width="1.5"/>`;
-  const tx=x0+bw+12, total=(b.f1use==='none'?0:+b.f1Area)+typ*(+b.typArea);
+  const bu=b.bUse||'none', ba=bu==='none'?0:+b.bArea;
+  for(let k=1;k<=B;k++){
+    const y=top+fh*F+(k-1)*fh+2;
+    s+=`<rect x="${x0}" y="${y}" width="${bw}" height="${fh-2}" rx="2" fill="${col[bu]}" fill-opacity=".32" stroke="${col[bu]}" stroke-dasharray="${bu==='none'?'3 2':''}"/>`;
+    if(fh>=13||k===B) s+=`<text x="${x0-6}" y="${y+fh/2+2}" text-anchor="end">B${k}F</text>`;
+    if(fh>=14) s+=`<text x="${x0+8}" y="${y+fh/2+2}" class="lbl" style="font-size:11px">${bu==='none'?'機械室・駐車場等':USE_NAME[bu]}${ba?`　${ba}坪（${(ba/0.3025).toFixed(0)}㎡）`:''}</text>`;
+  }
+  s+=`<line x1="${x0-10}" x2="${x0+bw+10}" y1="${top+fh*F+1}" y2="${top+fh*F+1}" stroke="var(--ink)" stroke-width="1.5"/>`;
+  if(B) s+=`<text x="${x0+bw+8}" y="${top+fh*F-3}" style="font-size:9px">GL</text>`;
+  const tx=x0+bw+12, total=(b.f1use==='none'?0:+b.f1Area)+typ*(+b.typArea)+B*ba;
   s+=`<text x="${tx}" y="${top+12}" class="lbl" style="font-size:11px">専有合計</text><text x="${tx}" y="${top+27}" class="lbl" style="font-weight:700">${total.toFixed(0)}坪</text><text x="${tx}" y="${top+41}">${(total/0.3025).toFixed(0)}㎡</text>`;
+  const ny=top+(typ>0?(+state.ptype===2?110:96):62);
+  s+=`<text x="${tx}" y="${ny}" style="font-size:11px">地上${F}階</text>${B?`<text x="${tx}" y="${ny+14}" style="font-size:11px">地下${B}階</text>`:''}`;
   if(typ>0) s+=`<text x="${tx}" y="${top+62}">オフィス ${of}階</text><text x="${tx}" y="${top+76}">住宅 ${rf}階</text>${+state.ptype===2?`<text x="${tx}" y="${top+90}">実比率 ${Math.round(of/typ*100)}%</text>`:''}`;
   el.innerHTML=s+'</svg>';
 }
