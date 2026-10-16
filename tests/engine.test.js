@@ -113,16 +113,31 @@ test('詳細：入力した各階の専有面積をそのまま使い、延床�
   near(r1.nraT, 15 + 20 + 7 * 40, 1e-12);
 });
 
-test('切替：初めて詳細にしたときだけ自動の値（0.01坪単位）を引き継ぐ', () => {
+test('切替：初めて詳細にしたときだけ自動の値を丸めずに引き継ぐ', () => {
   const st = autoState();
   const b = E.setAreaMode(st, 'detail');
   assert.equal(b.areaMode, 'detail');
   assert.equal(b.detailInit, true);
-  assert.equal(b.typArea, 34.31);
-  assert.equal(b.f1Area, 34.31);
-  assert.equal(b.bArea, 34.31);
+  // 1210 × 0.3025 ÷ 8 × 0.75 ＝ 34.31484375（表示だけ 34.31）
+  assert.equal(b.typArea, 34.31484375);
+  assert.equal(b.f1Area, 34.31484375);
+  assert.equal(b.bArea, 34.31484375);
   assert.equal(st.bld.areaMode, 'auto', '元の state は書き換えない');
 });
+
+for (const [label, bld] of [['初期値', {}], ['地下2階店舗', { bFloors: 2, bUse: 'retail' }], ['複合・地下賃貸なし', { bFloors: 1, bUse: 'none', officeRatio: 50 }]]) {
+  test(`切替：自動→詳細に切り替えた直後は結果が変わらない（${label}）`, () => {
+    const st = autoState(bld, label === '複合・地下賃貸なし' ? { ptype: 2 } : {});
+    const r0 = E.model(st);
+    const r1 = E.model({ ...st, bld: E.setAreaMode(st, 'detail') });
+    assert.equal(r1.nraT, r0.nraT, '専有合計');
+    assert.equal(r1.gprPost, r0.gprPost, '改修後の満室賃料');
+    assert.equal(r1.lirr, r0.lirr, '税引前IRR');
+    assert.equal(r1.atIRR, r0.atIRR, '税引後IRR');
+    assert.equal(r1.atProfit, r0.atProfit, '税引後純利益');
+    assert.equal(r1.salePrice, r0.salePrice, '売却価格');
+  });
+}
 
 test('切替：詳細→自動→詳細 で前回の詳細の値が戻る', () => {
   let st = autoState();
@@ -142,9 +157,60 @@ test('切替：「自動計算の値で上書き」を押したときだけ自�
   st.bld = { ...E.setAreaMode(st, 'detail'), typArea: 40 };
   st = { ...st, gfaM2: 2000 };
   st.bld = E.overwriteDetail(st);
-  // 2000 × 0.3025 ÷ 8 × 0.75 ＝ 56.71875 → 56.72
+  // 2000 × 0.3025 ÷ 8 × 0.75 ＝ 56.71875
   assert.equal(st.bld.areaMode, 'detail');
-  assert.deepEqual([st.bld.typArea, st.bld.f1Area, st.bld.bArea], [56.72, 56.72, 56.72]);
+  assert.deepEqual([st.bld.typArea, st.bld.f1Area, st.bld.bArea], [56.71875, 56.71875, 56.71875]);
+});
+
+// ---------- レンタブル比（全体・地上） ----------
+// 全体 ＝ 専有合計 ÷ 延床、地上 ＝ 地上階の専有合計 ÷ 地上階の延床（＝ 延床 × 地上階数 ÷ 全階数）
+test('レンタブル比：地下1階を店舗で賃貸 → 全体75%・地上75%', () => {
+  // 延床 366.025坪、1階あたり 366.025 ÷ 9 × 0.75 ＝ 30.5020833坪
+  // 全体：9 × 30.5020833 ＝ 274.51875坪 ÷ 366.025 ＝ 75%
+  // 地上：8 × 30.5020833 ＝ 244.0166667坪 ÷ (366.025 × 8/9 ＝ 325.3555556坪) ＝ 75%
+  const r = E.model(autoState({ bFloors: 1, bUse: 'retail' }));
+  near(r.rr.gfaAbove, 325.35555555555555, 1e-9, '地上階の延床');
+  near(r.rr.nraAbove, 244.01666666666668, 1e-9, '地上階の専有');
+  near(r.rr.all, 0.75, 1e-12, '全体');
+  near(r.rr.above, 0.75, 1e-12, '地上');
+});
+
+test('レンタブル比：地下1階が賃貸なし → 全体66.67%・地上75%', () => {
+  // 全体：244.0166667 ÷ 366.025 ＝ 0.75 × 8/9 ＝ 66.67%、地上：244.0166667 ÷ 325.3555556 ＝ 75%
+  const r = E.model(autoState({ bFloors: 1, bUse: 'none' }));
+  near(r.rr.all, 0.75 * 8 / 9, 1e-12, '全体');
+  near(r.rr.above, 0.75, 1e-12, '地上');
+});
+
+test('レンタブル比：1階なし（共用部のみ）・地下なし → 全体・地上とも65.625%', () => {
+  // 7 × 34.31484375 ＝ 240.20390625坪 ÷ 366.025 ＝ 0.75 × 7/8 ＝ 65.625%（地上階の延床 ＝ 延床）
+  const r = E.model(autoState({ f1use: 'none' }));
+  near(r.rr.gfaAbove, 366.025, 1e-9, '地上階の延床');
+  near(r.rr.all, 0.65625, 1e-12, '全体');
+  near(r.rr.above, 0.65625, 1e-12, '地上');
+});
+
+test('レンタブル比：1階なし・地下1階を賃貸 → 全体66.67%・地上65.63%', () => {
+  // 1階あたり 30.5020833坪。全体：(7 ＋ 1) × 30.5020833 ÷ 366.025 ＝ 0.75 × 8/9
+  // 地上：7 × 30.5020833 ÷ 325.3555556 ＝ 0.75 × 7/8
+  const r = E.model(autoState({ f1use: 'none', bFloors: 1, bUse: 'office' }));
+  near(r.rr.all, 0.75 * 8 / 9, 1e-12, '全体');
+  near(r.rr.above, 0.75 * 7 / 8, 1e-12, '地上');
+});
+
+test('レンタブル比：詳細モード（1階20坪・基準階40坪・地下1階15坪）', () => {
+  // 全体：(15 ＋ 20 ＋ 7 × 40) ÷ 366.025 ＝ 315 ÷ 366.025 ＝ 0.8605969…
+  // 地上：(20 ＋ 280) ÷ (366.025 × 8/9) ＝ 300 ÷ 325.3555556 ＝ 0.9220682…
+  const r = E.model(autoState({ areaMode: 'detail', detailInit: true, typArea: 40, f1Area: 20, bFloors: 1, bUse: 'office', bArea: 15 }));
+  near(r.rr.all, 315 / 366.025, 1e-12, '全体');
+  near(r.rr.above, 300 / (366.025 * 8 / 9), 1e-12, '地上');
+});
+
+test('レンタブル比：区画手入力モードでは地上レンタブル比を出さない', () => {
+  const st = autoState({}, { rentMode: 1 });
+  const r = E.model(st);
+  near(r.rr.all, r.nraT / r.gfaT, 1e-12, '全体');
+  assert.equal(r.rr.above, null);
 });
 
 // ---------- 保存データの移し替え（v6 → v7） ----------

@@ -260,6 +260,7 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
         <h2>賃料表</h2>
         <p class="sub">区画タイプ別の専有面積・坪単価から算出した満室想定賃料（共益費込み・初年度水準、フリーレント控除前）。</p>
         <div class="scroll"><table class="ctab rent" id="rent"></table></div>
+        <p class="rcap" id="rentRatio" style="margin-top:8px"></p>
       </section>
 
       <section class="card">
@@ -341,11 +342,10 @@ function effAreas(st){
   if(b.areaMode==='detail') return {typ:+b.typArea||0,f1:+b.f1Area||0,b:+b.bArea||0};
   const {per}=autoAreas(st); return {typ:per,f1:per,b:per};
 }
-const r2=v=>Math.round(v*100)/100;
-// 自動の値で詳細の入力値を入れ直した bld を返す（元の st は変えない）
+// 自動の値で詳細の入力値を入れ直した bld を返す（元の st は変えない）。値は丸めずに持ち、表示だけ 0.01坪単位にする
 function overwriteDetail(st){
-  const {per}=autoAreas(st), a=r2(per);
-  return {...st.bld,areaMode:'detail',detailInit:true,typArea:a,f1Area:a,bArea:a};
+  const {per}=autoAreas(st);
+  return {...st.bld,areaMode:'detail',detailInit:true,typArea:per,f1Area:per,bArea:per};
 }
 // 専有面積の決め方を切り替えた bld を返す。初めて詳細にするときだけ自動の値を引き継ぐ
 function setAreaMode(st,mode){
@@ -364,7 +364,7 @@ function genUnits(st){
   const b=st.bld||BLD_DEF, pr=b.price||BLD_DEF.price, {F,of,rf,B}=floorPlan(st), ea=effAreas(st), A=ea.typ, ru=+b.resiUnit||7.5, out=[];
   const fl=(a,z)=>a===z?`${a}F`:`${a}〜${z}F`;
   if(B>0&&b.bUse&&b.bUse!=='none'&&ea.b>0){ const u=b.bUse, k=Math.max(0,+b.bRate||0)/100;
-    out.push({name:`${USE_NAME[u]} ${B===1?'B1F':`B1〜B${B}F`}`,use:u,n:B,area:ea.b,cur:Math.round(pr[u][0]*k),post:Math.round(pr[u][1]*k)}); }
+    out.push({name:`${USE_NAME[u]} ${B===1?'B1F':`B1〜B${B}F`}`,use:u,n:B,area:ea.b,below:true,cur:Math.round(pr[u][0]*k),post:Math.round(pr[u][1]*k)}); }
   if(b.f1use!=='none'&&ea.f1>0){ const u=b.f1use, a1=ea.f1;
     if(u==='resi'){ const n=Math.max(1,Math.round(a1/ru)); out.push({name:'住宅 1F',use:'resi',n,area:a1/n,cur:pr.resi[0],post:pr.resi[1]}); }
     else out.push({name:`${USE_NAME[u]} 1F`,use:u,n:1,area:a1,cur:pr[u][0],post:pr[u][1]}); }
@@ -376,7 +376,14 @@ function model(raw){
   const st={...raw}; if(+raw.rentMode!==1) st.units=genUnits(raw);
   const gM=Math.max(0,+raw.gfaM2||0), gT=gM*0.3025;
   if(+raw.priceMode===1) st.price=gT*(+raw.priceTsubo||0);
-  const r=coreModel(st); r.gfaM2=gM; r.gfaT=gT; r.nraT=r.units.reduce((a,u)=>a+u.n*u.area,0); return r;
+  const r=coreModel(st); r.gfaM2=gM; r.gfaT=gT; r.nraT=r.units.reduce((a,u)=>a+u.n*u.area,0);
+  // レンタブル比：全体 ＝ 専有合計 ÷ 延床、地上 ＝ 地上階の専有 ÷ 地上階の延床（延床 × 地上階数 ÷ 全階数の均等割り）
+  // 区画手入力では区画に階の情報がないため、地上レンタブル比は出さない
+  let nraAbove=null, gfaAbove=null, above=null;
+  if(+raw.rentMode!==1){ const {F,B}=floorPlan(raw); gfaAbove=gT*F/(F+B);
+    nraAbove=st.units.filter(u=>!u.below).reduce((a,u)=>a+u.n*u.area,0); above=gfaAbove>0?nraAbove/gfaAbove:null; }
+  r.rr={all:gT>0?r.nraT/gT:null,above,nraAbove,gfaAbove};
+  return r;
 }
 
 function annuity(bal,r,n){ if(n<=0) return bal; if(r===0) return bal/n; return bal*r/(1-Math.pow(1+r,-n)); }
@@ -598,9 +605,9 @@ function unitsHTML(){
       <div class="f" id="w-b-bUse"><label for="b-bUse">地下の用途</label><div class="in"><select id="b-bUse" data-b="bUse">${selOpts([['retail','店舗'],['office','オフィス'],['none','賃貸なし（機械室等）']],b.bUse)}</select></div></div>
       <div class="f wide"><label for="areaMode">専有面積の決め方</label><div class="in"><select id="areaMode">${selOpts([['auto','自動（延床面積から計算）'],['detail','詳細（階ごとに入力）']],b.areaMode)}</select></div></div>
       ${auto?`${numF('b-rr','data-b="rr"','想定レンタブル比','%',b.rr,1)}<div class="auto-formula" id="autoFormula"></div>`:''}
-      ${numF('b-typArea','data-b="typArea"','基準階専有面積','坪/階',auto?av(ea.typ):b.typArea,0.5,'t')}
-      ${numF('b-f1Area','data-b="f1Area"','1階専有面積','坪',auto?av(ea.f1):b.f1Area,0.5,'t')}
-      ${numF('b-bArea','data-b="bArea"','地下専有面積','坪/階',auto?av(ea.b):b.bArea,0.5,'t')}
+      ${numF('b-typArea','data-b="typArea"','基準階専有面積','坪/階',av(auto?ea.typ:b.typArea),0.5,'t')}
+      ${numF('b-f1Area','data-b="f1Area"','1階専有面積','坪',av(auto?ea.f1:b.f1Area),0.5,'t')}
+      ${numF('b-bArea','data-b="bArea"','地下専有面積','坪/階',av(auto?ea.b:b.bArea),0.5,'t')}
       ${numF('b-bRate','data-b="bRate"','地下の坪単価（地上比）','%',b.bRate,5)}
       ${auto?'':`<button type="button" class="btn wide" id="overwriteDetail">自動計算の値で上書き</button><p class="hint wide" style="grid-column:1/-1;margin:0">詳細の値は自動モードの値とは別に保存され、自動に切り替えても残ります。</p>`}
       ${numF('b-officeRatio','data-b="officeRatio"','オフィス比率（2階以上）','%',b.officeRatio,5)}
@@ -772,7 +779,8 @@ function renderInputSums(r){
   $('acqInfo').innerHTML=r.gfaT>0
     ? `<div><span>延床坪単価</span><b>${(pr/r.gfaT).toFixed(1)}万円/坪（${(pr/r.gfaM2).toFixed(1)}万円/㎡）</b></div>
        <div><span>専有坪単価</span><b>${r.nraT>0?(pr/r.nraT).toFixed(1)+'万円/坪（'+(pr/(r.nraT/0.3025)).toFixed(1)+'万円/㎡）':'—'}</b></div>
-       <div class="${rr>1||rr<0.5?'warn':''}"><span>レンタブル比</span><b>${pct(rr)}（専有 ${r.nraT.toFixed(0)}坪 ÷ 延床 ${r.gfaT.toFixed(0)}坪）</b></div>${rr>1?'<div class="warn">専有面積が延床面積を上回っています。面積の入力を確認してください。</div>':''}`
+       <div class="${rr>1||rr<0.5?'warn':''}"><span>全体レンタブル比</span><b>${pct(rr)}（専有 ${r.nraT.toFixed(1)}坪 ÷ 延床 ${r.gfaT.toFixed(1)}坪）</b></div>
+       ${r.rr.above!==null?`<div class="${r.rr.above>1?'warn':''}"><span>地上レンタブル比</span><b>${pct(r.rr.above)}（地上専有 ${r.rr.nraAbove.toFixed(1)}坪 ÷ 地上延床 ${r.rr.gfaAbove.toFixed(1)}坪）</b></div>`:''}${rr>1?'<div class="warn">専有面積が延床面積を上回っています。面積の入力を確認してください。</div>':''}`
     : '<div>延床面積を入力すると坪単価とレンタブル比を表示します。</div>';
   r.units.forEach((u,i)=>{ const el=$('us-'+i); if(!el) return;
     el.textContent=`${u.n}区画・${tm(u.n*u.area)}　月額 ${man(u.cur)}万円 → ${man(u.post)}万円（${u.cur>0?(u.post>=u.cur?'+':'')+((u.post/u.cur-1)*100).toFixed(1)+'%':'—'}）`; });
@@ -1038,6 +1046,10 @@ function drawRent(r){
   const up=tot.cur>0?tot.post/tot.cur-1:null;
   h+=`<tr class="tot"><td>合計</td><td></td><td>${tot.n}</td><td></td><td>${ar(tot.area)}</td><td>${tot.area>0?pp(tot.cur*10000/tot.area):'—'}</td><td>${tot.area>0?pp(tot.post*10000/tot.area):'—'}</td><td>${man(tot.cur)}万円</td><td class="x">${man(tot.post)}万円</td><td class="up">${up===null?'—':(up>=0?'+':'')+(up*100).toFixed(1)+'%'}</td></tr>`;
   $('rent').innerHTML=h+'</tbody>';
+  const q=r.rr, gm=v=>`${v.toFixed(1)}坪（${(v/0.3025).toFixed(1)}㎡）`;
+  $('rentRatio').innerHTML=q.all===null?'延床面積を入力するとレンタブル比を表示します。'
+    :`全体レンタブル比 <b>${pct(q.all)}</b>（専有 ${gm(r.nraT)} ÷ 延床 ${gm(r.gfaT)}）`
+     +(q.above!==null?`　／　地上レンタブル比 <b>${pct(q.above)}</b>（地上専有 ${gm(q.nraAbove)} ÷ 地上延床 ${gm(q.gfaAbove)}）`:'　／　地上レンタブル比は区画手入力では表示しません');
 }
 
 function drawSens(){
