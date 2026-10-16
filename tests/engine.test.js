@@ -264,14 +264,13 @@ test('価格：延床が0のときは延床坪単価を変えない（0で割ら
 });
 
 for (const [key, src] of [['default', v6Default], ['custom', v6Custom]]) {
-  test(`価格：保存データ（v6 ${key === 'default' ? '初期値・総額入力' : '独自入力・坪単価入力'}）を読み込んで同期しても結果が変わらない`, () => {
+  test(`価格：保存データ（v6 ${key === 'default' ? '初期値・総額入力' : '独自入力・坪単価入力'}）を読み込んで同期しても物件価格・税引前IRRが変わらない`, () => {
     const st = E.migrate(clone(src));
     st.bld = { ...clone(E.BLD_DEF), ...st.bld };
     const s = E.syncPrice(st);
     const r = E.model({ ...st, price: s.price, priceTsubo: s.priceTsubo }), g = v6Results[key];
     near(r.p.price, g.price, 1e-8, '物件価格');
-    near(r.atIRR, g.atIRR, 1e-12, '税引後IRR');
-    near(r.atProfit, g.atProfit, 1e-6, '税引後純利益');
+    near(r.lirr, g.lirr, 1e-12, '税引前IRR');
   });
 }
 
@@ -298,20 +297,22 @@ test('移し替え：bld を持たない古い v6 データも詳細モードに
 });
 
 for (const [key, src] of [['default', v6Default], ['custom', v6Custom]]) {
-  test(`移し替え：v6 の${key === 'default' ? '初期値' : '独自入力'}データの計算結果が変更前と一致する`, () => {
+  test(`移し替え：v6 の${key === 'default' ? '初期値' : '独自入力'}データの税引前の計算結果が変更前と一致する`, () => {
     const st = E.migrate(clone(src));
     st.bld = { ...clone(E.BLD_DEF), ...st.bld };          // 画面の読み込み処理と同じ合成
     const r = E.model(st), g = v6Results[key];
     near(r.lirr, g.lirr, 1e-12, '税引前IRR');
-    near(r.atIRR, g.atIRR, 1e-12, '税引後IRR');
-    near(r.atProfit, g.atProfit, 1e-6, '税引後純利益');
     near(r.salePrice, g.salePrice, 1e-6, '売却価格');
     near(r.nraT, g.nraT, 1e-9, '専有合計');
+    // 税引後は、修繕積立（Capex）を資産計上・減価償却する税務修正（v8）の分だけ上がる
+    assert.ok(r.atIRR > g.atIRR && r.atProfit > g.atProfit, '税引後IRR・純利益は上がる');
     near(r.p.price, g.price, 1e-6, '物件価格');
   });
 }
 
-test('移し替え：すでに v7 形式のデータは変更しない', () => {
+test('移し替え：v7 形式のデータの建物設定と物件名は変更しない（運営費の移し替えは opex.test.js で確認）', () => {
   const v7 = { ...clone(v6Default), propName: 'テストビル', bld: { ...clone(E.BLD_DEF), areaMode: 'auto', rr: 72, detailInit: false } };
-  assert.deepEqual(plain(E.migrate(clone(v7))), v7);
+  const m = plain(E.migrate(clone(v7)));
+  assert.deepEqual(m.bld, v7.bld);
+  assert.equal(m.propName, 'テストビル');
 });

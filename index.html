@@ -129,6 +129,8 @@ th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px sol
 th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
 thead th{color:var(--muted);font-weight:500}
 tr.em td{font-weight:700}
+#cf tr.sub td:first-child{padding-left:22px;color:var(--muted)}
+#cf tr.sec td{color:var(--accent);font-weight:700;font-size:11.5px;text-align:left;padding-top:10px;background:transparent}
 tr.eq td{color:var(--accent);font-weight:700}
 td.neg{color:var(--neg)}
 .sens td,.sens th{text-align:center}
@@ -204,6 +206,15 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 .auto-formula b{color:var(--ink);font-weight:700}
 .btn.wide{grid-column:1/-1;width:100%}
 .print-head{display:none}
+.ref{margin-top:8px;font-size:11.5px;color:var(--muted)}
+.ref summary{cursor:pointer;color:var(--accent);font-size:12px}
+.ref table{width:100%;margin-top:6px;font-size:11px;border-collapse:collapse}
+.ref th,.ref td{padding:3px 5px;text-align:left;white-space:normal;position:static;background:transparent;border-bottom:1px solid var(--line)}
+.ref .hl,.ref tr.hl td{color:var(--ink);background:var(--accent-soft);font-weight:700}
+.ref p{margin:6px 0 0}
+.opex-sum{display:grid;gap:3px;margin-top:10px;font-size:12px;padding:8px 10px;border-radius:8px;background:var(--surface-2)}
+.opex-sum div{display:flex;justify-content:space-between;gap:8px}
+.opex-sum span{color:var(--muted)}
 /* 印刷も画面と同じダーク。用紙の余白（12mm）は残し、@page の背景で余白部分も同じ色に塗る（Chrome）。
    print-color-adjust:exact で「背景のグラフィック」をオフにしても背景色・グラフの色を出す */
 @page{size:A4;margin:12mm;background:#1e2124}
@@ -227,7 +238,9 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .m{padding:8px 10px}
   .m .v{font-size:18px}
   .m.lead .v{font-size:20px}
-  .cmp{grid-template-columns:170px minmax(0,1fr);gap:16px}
+  .cmp{grid-template-columns:240px minmax(0,1fr);gap:14px}
+  /* 資本構成図：列 240px（縮小率0.8）× 文字14px ≒ 11px（約8.4pt）以上で印刷 */
+  #stack svg text{font-size:14px!important}
   .eqn{gap:4px 14px}
   .chart-box{max-width:none}
   .eqn .t .v{font-size:17px}
@@ -246,7 +259,12 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .stmt td{padding:4px 10px}
   .sens td,.sens th{padding:3px 6px}
   th:first-child,td:first-child{position:static}
-  .btn,.del,.sel{display:none!important}
+  .btn,.del,.sel,.ref{display:none!important}
+  .cf-card{break-before:page}
+  /* 年次キャッシュフロー表は全行を1ページに収める */
+  #cf{font-size:10px;line-height:1.3}
+  #cf td,#cf th{padding:2px 8px}
+  #cf tr.sec td{padding-top:5px;font-size:10px}
   .f input:disabled,.f select:disabled{color:var(--ink)}
   .jc .draw-line{animation:none;stroke-dashoffset:0}
   .jc .fade{animation:none;opacity:1}
@@ -324,7 +342,7 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
         <div class="scroll"><table class="sens" id="sens"></table></div>
       </section>
 
-      <section class="card">
+      <section class="card cf-card">
         <h2>年次キャッシュフロー</h2>
         <p class="sub">万円。売却年のエクイティCFには売却手取りを含みます。</p>
         <div class="scroll"><table id="cf"></table></div>
@@ -338,7 +356,9 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 <script>
 // @engine-begin
 /* ---------- model (pure) ---------- */
-const PCT=['acq','occNow','occReno','rg','eg','res','ltv','cltv','rate','exitCap','sale','disc','target','corpRate','indRate','bldgRatio'];
+const PCT=['acq','occNow','occReno','rg','eg','res','ltv','cltv','rate','exitCap','sale','disc','target','corpRate','indRate','bldgRatio','pmRate','amAcq','amFee','amSale'];
+// 運営費の内訳（v8）。既存データの移し替えでは「その他運営費」以外を0にする
+const OPEX_KEYS=['pmRate','bmTsubo','utilCost','utilInc','repTsubo','propTax','propTaxPost','ins','leaseMo','capexTsubo','amAcq','amFee','amSale','spc'];
 const LT_RATE=0.20315, ST_RATE=0.3963;
 const USE_DEF={office:{stab:95,L:12,fr:3},resi:{stab:95,L:6,fr:0},retail:{stab:95,L:9,fr:2}};
 const USE_NAME={office:'オフィス',resi:'住宅',retail:'店舗'};
@@ -382,6 +402,11 @@ function migrate(saved){
   if(s.bld.areaMode===undefined){ s.bld.areaMode='detail'; s.bld.detailInit=true; }
   if(s.bld.rr===undefined) s.bld.rr=RR_DEF[Math.round(+s.ptype||0)]??RR_DEF[0];
   if(s.propName===undefined) s.propName='';
+  // v7 → v8：運営費を内訳に。旧「運営費」はその他運営費、旧「修繕積立（収入比）」は Capex（収入比）へ。売却価格はNOI基準のまま
+  if(s.ver===undefined){
+    s.opexOther=s.opex0!==undefined?+s.opex0:800; s.res=s.res!==undefined?+s.res:3; s.exitCap=s.exitCap!==undefined?+s.exitCap:4.5;
+    OPEX_KEYS.forEach(k=>{ s[k]=0; }); s.saleBasis=0; s.amBase=0; s.ver=8;
+  }
   return s;
 }
 function genUnits(st){
@@ -430,7 +455,14 @@ function flowStats(cfs){
 }
 
 function coreModel(raw){
-  const p={...raw}; PCT.forEach(k=>p[k]=raw[k]/100);
+  const p={...raw}; PCT.forEach(k=>p[k]=(+raw[k]||0)/100);
+  const num=k=>{ const v=+raw[k]; return isFinite(v)?v:0; };
+  const gT=Math.max(0,num('gfaM2'))*0.3025;                                   // 延床（坪）。BM費・修繕費・Capex の基準
+  const ox={bm:num('bmTsubo')*gT/1e4, rep:num('repTsubo')*gT/1e4, util:num('utilCost'), uInc:num('utilInc'),
+    ptax:num('propTax'), ptaxPost:num('propTaxPost'), ins:num('ins'), oth:num('opexOther'), lease:num('leaseMo'),
+    capexT:num('capexTsubo')*gT/1e4, spc:num('spc'), amBase:Math.round(num('amBase')), saleBasis:Math.round(num('saleBasis'))};
+  // 年額（上昇前）の Opex。賃料収入（フリーレント控除後、光熱費収入を除く）に PM 報酬率を掛ける。BM費は月額×12
+  const annualOpex=(rent,ptax)=>p.pmRate*rent+ox.bm*12+ox.util+ox.rep+ptax+ox.ins+ox.oth;
   const N=Math.max(1,Math.round(p.N)), io=Math.max(0,Math.round(p.io)), amort=Math.max(1,Math.round(p.amort));
   const Cplan=Math.max(0,Math.round(p.cMonths)), D=Math.max(0,Math.round(p.cDelay)), C=Cplan+D;
   const taxMode=Math.round(p.taxMode), saleMode=Math.round(p.saleMode);
@@ -445,42 +477,52 @@ function coreModel(raw){
   const L=useKeys.length?Math.max(...useKeys.map(k=>grp[k].L)):0;
   const delayCost=D>0?p.delayCost:0, capexAll=p.capex+delayCost;
   const acqTotal=p.price*(1+p.acq), totalCost=acqTotal+capexAll;
+  const amAcqFee=p.amAcq*p.price;                                               // AM取得報酬：取得原価に含める（NOI・NCFには影響しない）
+  const ptaxSwitch=C>0?12*Math.ceil(C/12):0;                                    // 公租公課：竣工した月を含む年の翌年から改修後の額
 
   // monthly engine
   const mo=[];
   for(let m=1;m<=12*(N+1);m++){
     const yi=Math.floor((m-1)/12), g=Math.pow(1+p.rg,yi), ge=Math.pow(1+p.eg,yi);
     const share=C===0?1:Math.min(1,(m-0.5)/C);
-    let gpr=0,egiG=0,fr=0,leasing=false;
+    let gpr=0,egiG=0,fr=0,lease=0,leasing=false;
     useKeys.forEach(k=>{ const G=grp[k], gp=(G.cur+(G.post-G.cur)*share)*g; let occ;
       if(m<=C) occ=p.occReno;
       else{ const start=C>0?p.occReno:p.occNow, kk=m-C;
         occ=G.L===0?G.stab:start+(G.stab-start)*Math.min(1,(kk-0.5)/G.L);
         if(kk<=G.L) leasing=true;
         const gap=Math.max(0,G.stab-start);
-        if(G.fr>0&&gap>0){ if(G.L===0){ if(kk===1) fr+=gap*G.post*g*G.fr; } else if(kk<=G.L) fr+=gap*G.post*g*G.fr/G.L; } }
+        if(G.fr>0&&gap>0){ if(G.L===0){ if(kk===1) fr+=gap*G.post*g*G.fr; } else if(kk<=G.L) fr+=gap*G.post*g*G.fr/G.L; }
+        // リーシング費用：新規に埋まる面積の改修後月額 × か月数を、新規契約が発生した月（リースアップ期間に均等）に計上
+        if(ox.lease>0&&gap>0){ if(G.L===0){ if(kk===1) lease+=gap*G.post*g*ox.lease; } else if(kk<=G.L) lease+=gap*G.post*g*ox.lease/G.L; } }
       gpr+=gp; egiG+=gp*occ; });
     const phase=m<=C?'reno':(leasing?'lease':'stab');
-    const egi=egiG-fr, opex=p.opex0/12*ge, occ=gpr>0?egiG/gpr:0;
+    const egi=egiG-fr, occ=gpr>0?egiG/gpr:0;
+    const pm=p.pmRate*egi, bm=ox.bm*ge, util=ox.util/12*ge, uInc=ox.uInc/12*ge, rep=ox.rep/12*ge,
+      ptax=(m>ptaxSwitch?ox.ptaxPost:ox.ptax)/12*ge, ins=ox.ins/12*ge, oth=ox.oth/12*ge;
+    const opex=pm+bm+util+rep+ptax+ins+lease+oth;
+    const capexHold=m>C?ox.capexT/12*ge:0;                                       // 保有中の資本的支出（竣工の翌月から）
     let capex=0;
     if(C>0){
       if(Cplan>0){ if(m<=Cplan) capex+=p.capex/Cplan; } else if(m<=C) capex+=p.capex/C;
       if(D>0&&m>Cplan&&m<=C) capex+=delayCost/D;
     }
-    mo.push({m,gpr,egi,opex,noi:egi-opex,capex,occ,phase,fr});
+    mo.push({m,gpr,egi,uInc,pm,bm,util,rep,ptax,ins,lease,oth,opex,noi:egi+uInc-opex,capex,capexHold,occ,phase,fr});
   }
   const years=[];
   for(let t=1;t<=N+1;t++){
     const ms=mo.slice(12*(t-1),12*t), sum=k=>ms.reduce((a,x)=>a+x[k],0);
     const gpr=sum('gpr'), egi=sum('egi'), opex=sum('opex'), capex=sum('capex'), fr=sum('fr'), occ=gpr>0?ms.reduce((a,x)=>a+x.gpr*x.occ,0)/gpr:0;
     const phase=ms.some(x=>x.phase==='reno')?'reno':ms.some(x=>x.phase==='lease')?'lease':'stab';
-    years.push({t,gpr,egi,opex,noi:egi-opex,capex,fr,occ,phase,reserve:p.res*egi});
+    const it={}; ['uInc','pm','bm','util','rep','ptax','ins','lease','oth','capexHold'].forEach(k=>it[k]=sum(k));
+    const noi=egi+it.uInc-opex, reserve=p.res*egi;
+    years.push({t,gpr,egi,opex,noi,capex,fr,occ,phase,reserve,...it,ncf:noi-it.capexHold-reserve});
   }
 
   // debt
   const acqLoan=p.ltv*p.price;
   let bal=acqLoan+(C===0?p.cltv*capexAll:0);
-  const eqCF=[-(acqTotal+(C===0?capexAll:0))+bal], unCF=[-(acqTotal+(C===0?capexAll:0))];
+  const eqCF=[-(acqTotal+(C===0?capexAll:0))+bal-amAcqFee], unCF=[-(acqTotal+(C===0?capexAll:0))];
   let minDSCR=Infinity;
   for(let i=0;i<N;i++){
     const y=years[i], draw=p.cltv*y.capex;
@@ -489,34 +531,38 @@ function coreModel(raw){
     if(y.t>io){ const n=Math.max(1,amort-(y.t-1-io)); princ=Math.min(bal,annuity(bal,p.rate,n)-interest); }
     bal-=princ;
     Object.assign(y,{draw,interest,princ,ds:interest+princ,bal});
-    y.dscr=y.ds>0?y.noi/y.ds:null;
+    y.dscr=y.ds>0?y.ncf/y.ds:null;                                             // DSCR は NCF 基準（ファンド費用は含めない）
     if(y.dscr!==null&&y.phase==='stab') minDSCR=Math.min(minDSCR,y.dscr);
-    y.unCF=y.noi-y.reserve-y.capex; y.eqCF=y.unCF+draw-y.ds;
+    // ファンド費用（NCFの下）：AM期中報酬（物件価格またはNOI × 年率）と SPC 運営費（経費上昇率で増加）
+    y.amFee=ox.amBase===1?p.amFee*y.noi:p.amFee*p.price; y.spc=ox.spc*Math.pow(1+p.eg,y.t-1); y.fund=y.amFee+y.spc;
+    y.unCF=y.ncf-y.capex; y.eqCF=y.unCF+draw-y.ds-y.fund;
     eqCF.push(y.eqCF); unCF.push(y.unCF);
   }
 
   // sale
-  const fwdNOI=years[N].noi, ys=years.slice(0,N), last=ys[N-1];
-  const salePrice=saleMode===1?Math.max(0,p.salePriceIn):fwdNOI/p.exitCap;
-  const capEff=salePrice>0?fwdNOI/salePrice:null;
-  const saleCost=salePrice*p.sale, saleNet=salePrice-saleCost, payoff=bal;
-  eqCF[N]+=saleNet-payoff; unCF[N]+=saleNet;
+  const fwdNOI=years[N].noi, fwdNCF=years[N].ncf, ys=years.slice(0,N), last=ys[N-1];
+  const salePrice=saleMode===1?Math.max(0,p.salePriceIn):(ox.saleBasis===1?fwdNCF:fwdNOI)/p.exitCap;
+  const capEff=salePrice>0?fwdNOI/salePrice:null;                               // 比較用の利回りは NOI 基準で統一
+  const saleCost=salePrice*p.sale, saleNet=salePrice-saleCost, payoff=bal, amSaleFee=p.amSale*salePrice;
+  eqCF[N]+=saleNet-payoff-amSaleFee; unCF[N]+=saleNet;
 
   // tax
-  const bBasis=acqTotal*p.bldgRatio, landBasis=acqTotal-bBasis;
+  const taxBasis=acqTotal+amAcqFee, bBasis=taxBasis*p.bldgRatio, landBasis=taxBasis-bBasis;
   const bLife=Math.max(1,Math.round(p.bldgLife)), cLife=Math.max(1,Math.round(p.capexLife));
   const tranches=C===0?[{s:1,a:capexAll}]:ys.filter(y=>y.capex>0).map(y=>({s:y.t,a:y.capex}));
+  // 保有中の Capex（延床・収入比）も資産に計上し、支出した年から改修費の償却年数で定額償却する
+  ys.forEach(y=>{ const a=y.capexHold+y.reserve; if(a>0) tranches.push({s:y.t,a}); });
   const spent=tranches.reduce((a,tr)=>a+tr.a,0);
   const opRate=taxMode===0?p.corpRate:taxMode===1?p.indRate:0;
   let accB=0,accC=0,loss=0;
   ys.forEach(y=>{
     const dB=y.t<=bLife?bBasis/bLife:0; let dC=0;
     tranches.forEach(tr=>{ if(y.t>=tr.s&&y.t<tr.s+cLife) dC+=tr.a/cLife; });
-    accB+=dB; accC+=dC; y.dep=dB+dC; y.taxable=y.noi-y.interest-y.dep; y.taxOp=0;
+    accB+=dB; accC+=dC; y.dep=dB+dC; y.taxable=y.noi-y.interest-y.dep-y.fund; y.taxOp=0;
     if(y.t<N){ const ti=y.taxable-loss; if(ti<0){loss=-ti}else{loss=0; y.taxOp=ti*opRate} }
   });
   const bookB=bBasis-accB, bookC=spent-accC, book=landBasis+bookB+bookC;
-  const gain=saleNet-book;
+  const gain=saleNet-amSaleFee-book;                                            // AM売却報酬は譲渡費用
   let taxSale=0,gainRate=0,gainLabel='考慮しない';
   const tiN=last.taxable-loss;
   if(taxMode===0){
@@ -531,8 +577,10 @@ function coreModel(raw){
 
   const pre=flowStats(eqCF), un=flowStats(unCF), at=flowStats(atCF);
   let cum=0,peak=0; eqCF.forEach(c=>{cum+=c;peak=Math.min(peak,cum)});
-  const saleEq=saleNet-payoff, opDist=eqCF.slice(1).reduce((a,c)=>a+c,0)-saleEq;
-  const stabNOI=useKeys.reduce((a,k)=>a+grp[k].post*12*grp[k].stab,0)-p.opex0, curNOI=gpr0*p.occNow-p.opex0;
+  const saleEq=saleNet-payoff-amSaleFee, opDist=eqCF.slice(1).reduce((a,c)=>a+c,0)-saleEq;
+  const stabRent=useKeys.reduce((a,k)=>a+grp[k].post*12*grp[k].stab,0), curRent=gpr0*p.occNow;
+  const stabOpex=annualOpex(stabRent,ox.ptaxPost), curOpex=annualOpex(curRent,ox.ptax);
+  const stabNOI=stabRent+ox.uInc-stabOpex, curNOI=curRent+ox.uInc-curOpex;
   const capForValue=capEff||p.exitCap, stabValue=stabNOI/capForValue, totalDebt=acqLoan+p.cltv*capexAll;
   return {
     N,C,Cplan,D,L,R:C,grp,useKeys,mo:mo.slice(0,12*N),years:ys,eqCF,unCF,atCF,p,taxMode,saleMode,units,gpr0,gprPost,capexAll,delayCost,
@@ -542,7 +590,8 @@ function coreModel(raw){
     stabNOI,curNOI,stabValue,totalCost,acqTotal,valueCreated:stabValue-totalCost,
     fwdNOI,salePrice,saleCost,saleNet,payoff,saleEq,opDist,exitCapEff:capEff,
     minDSCR:isFinite(minDSCR)?minDSCR:null,
-    exitOcc:last.occ,exitGPR:last.gpr,exitOpexRatio:last.opex/last.egi,entryOpexRatio:gpr0>0?p.opex0/(gpr0*p.occNow):0,
+    exitOcc:last.occ,exitGPR:last.gpr,exitOpexRatio:last.opex/(last.egi+last.uInc),entryOpexRatio:curRent+ox.uInc>0?curOpex/(curRent+ox.uInc):0,
+    stabOpex,curOpex,gT,amAcqFee,amSaleFee,fwdNCF,saleBasis:ox.saleBasis,capexTAnnual:ox.capexT,
     totalDebt,entryEquity:totalCost-totalDebt,
     landBasis,bookB,bookC,book,gain,taxSale,taxOpTot,gainRate,gainLabel,atSale:saleEq-taxSale
   };
@@ -556,27 +605,39 @@ const FIELDS=[
  ['取得',[
   ['priceMode','物件価格の入力方法','',0,1,['総額で入力','延床坪単価で入力']],
   ['price','物件価格','万円',50000,100],['priceTsubo','延床坪単価','万円/坪',137,0.5,null,'pm'],['acq','取得諸費用','%',6,0.5],
-  ['occNow','現況稼働率','%',80,1],['opex0','運営費','万円/年',800,10]]],
+  ['occNow','現況稼働率','%',80,1]]],
  ['RENT',[]],
  ['USES',[]],
  ['改修工事',[
   ['capex','改修費（予定）','万円',6000,100],['occReno','工事中稼働率','%',70,1],
   ['cMonths','予定工期','か月',10,1],['cDelay','工期延長','か月',0,1],
   ['delayCost','延長に伴う追加費用','万円',0,50]]],
- ['稼働・成長',[
-  ['res','修繕積立','%/収入',3,0.5],
+ ['成長率',[
   ['rg','賃料上昇率','%/年',1,0.1],['eg','経費上昇率','%/年',1.5,0.1]]],
+ ['運営費（Opex）',[
+  ['pmRate','PM報酬（賃料収入の）','%',2,0.1],['bmTsubo','BM費（延床）','円/坪/月',600,50],
+  ['utilCost','水道光熱費','万円/年',300,10],['utilInc','水道光熱費収入','万円/年',240,10],
+  ['repTsubo','修繕費（延床）','円/坪/年',3000,100],['ins','損害保険料','万円/年',30,5],
+  ['propTax','公租公課','万円/年',330,10],['propTaxPost','公租公課（改修後）','万円/年',330,10],
+  ['leaseMo','リーシング費用','新規賃料のか月',2,0.5],['opexOther','その他運営費','万円/年',40,10]]],
+ ['資本的支出（Capex）',[
+  ['capexTsubo','Capex（延床）','円/坪/年',4000,100],['res','Capex（収入比）','%/収入',0,0.5]]],
+ ['ファンド費用',[
+  ['amAcq','AM取得報酬（物件価格の）','%',0,0.1],['amSale','AM売却報酬（売却価格の）','%',0,0.1],
+  ['amBase','AM期中報酬の基準','',0,1,['物件価格','NOI']],
+  ['amFee','AM期中報酬','%/年',0,0.05],['spc','SPC運営費','万円/年',0,10]]],
  ['融資',[
   ['ltv','取得LTV','%',70,1],['cltv','改修費の融資割合','%',70,1],
   ['rate','金利','%',2.0,0.05],['amort','返済期間','年',30,1],['io','元本据置','年',2,1]]],
  ['出口',[
   ['saleMode','売却価格の決め方','',0,1,['キャップレートで算出','金額を指定']],
-  ['exitCap','出口キャップレート','%',4.5,0.05],['salePriceIn','売却価格','万円',75000,100],['N','保有期間','年',5,1],
+  ['saleBasis','キャップレートを掛ける収益','',1,1,['NOI（Capex控除前）','NCF（Capex控除後）']],
+  ['exitCap','出口キャップレート','%',4.3,0.05],['salePriceIn','売却価格','万円',75000,100],['N','保有期間','年',5,1],
   ['sale','売却費用','%',3,0.5],['disc','割引率（NPV）','%',7,0.5],['target','目標IRR（税引後）','%',10,0.5]]],
  ['税金',[
   ['taxMode','課税主体','',0,1,['法人','個人','考慮しない']],['corpRate','法人実効税率','%',30.6,0.1],
   ['indRate','不動産所得の税率','%',33,1],['bldgRatio','建物比率','%',40,1],
-  ['bldgLife','建物の償却年数','年',20,1],['capexLife','改修費の償却年数','年',15,1]]]
+  ['bldgLife','建物の償却年数','年',20,1],['capexLife','改修費・Capexの償却年数','年',15,1]]]
 ];
 const PTYPES=[
  {label:'オフィス',units:[
@@ -594,12 +655,13 @@ const PTYPES=[
 const clone=o=>JSON.parse(JSON.stringify(o));
 const DEFAULT_UNITS=PTYPES[0].units;
 const DEFAULTS={rentAdj:0,sensAxis:0}; FIELDS.forEach(([,fs])=>fs.forEach(f=>DEFAULTS[f[0]]=f[3]));
-DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210; DEFAULTS.propName='';
-const KEY='valueadd-sim-v7', OLD_KEY='valueadd-sim-v6';  // v6 は旧版へ戻したときのために消さずに残す
+DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210; DEFAULTS.propName=''; DEFAULTS.ver=8;
+// 保存キー：v8 がなければ v7、それもなければ v6 を読み、migrate で v8 形式に移す。旧キーは旧版へ戻したときのために消さない
+const KEY='valueadd-sim-v8', OLD_KEYS=['valueadd-sim-v7','valueadd-sim-v6'];
 let state={...DEFAULTS}, firstRender=true;
 try{
-  const s7=localStorage.getItem(KEY), s6=s7?null:localStorage.getItem(OLD_KEY);
-  const s=s7?JSON.parse(s7):s6?migrate(JSON.parse(s6)):null;
+  let s=JSON.parse(localStorage.getItem(KEY)||'null');
+  if(!s) for(const k of OLD_KEYS){ const o=localStorage.getItem(k); if(o){ s=migrate(JSON.parse(o)); break; } }
   if(s) state={...DEFAULTS,...s};
 }catch(e){}
 state.units=clone(state.units||DEFAULT_UNITS); state.uses={...clone(USE_DEF),...clone(state.uses||{})};
@@ -675,10 +737,37 @@ function usesHTML(){
       </div></div>`; }).join('')}
   </fieldset>`;
 }
+// 入力欄の近くに出す参考値（クリックで開閉。印刷には出さない）
+const REFS={
+ '運営費（Opex）':`<div class="opex-sum" id="opexSum"></div>
+  <p class="hint" style="margin:6px 0 0">BM費・修繕費・Capex（延床）は延床面積が基準。公租公課（改修後）は竣工した月を含む年の翌年から（改修なしなら1年目から）。リーシング費用は新規契約の月に計上。</p>
+  <details class="ref"><summary>BM費の目安（月額）</summary><table id="refBM">
+   <tr data-max="500"><td>〜500坪</td><td>400〜600円/坪</td><td>法定点検と週数回の巡回清掃</td></tr>
+   <tr data-max="1000"><td>500〜1,000坪</td><td>600〜1,000円/坪</td><td>日常清掃、空調・電気の設備管理を含む</td></tr>
+   <tr data-max="Infinity"><td>1,000坪以上</td><td>1,000〜2,000円以上/坪</td><td>24時間の機械警備、常駐管理を含む総合管理</td></tr></table></details>`,
+ 'ファンド費用':`<p class="hint" style="margin:6px 0 0">NOI・NCF・売却価格には影響せず、投資家のCF・IRR・税金にだけ反映。取得報酬は取得原価、売却報酬は譲渡費用、期中報酬・SPC運営費は毎年の損金。</p>
+  <details class="ref"><summary>AM報酬の目安</summary><p>取得報酬：物件価格の0.5〜1%／期中報酬：年0.3%前後／売却報酬：売却価格の0.5%／SPC運営費：年300〜500万円</p></details>`,
+ '出口':`<details class="ref"><summary>キャップレートの目安</summary><table id="refCap">
+   <tr><th>エリア</th><th data-c="resi">住宅</th><th data-c="office">オフィス</th><th data-c="retail">商業・物流</th></tr>
+   <tr><td>東京一等地・都心5区</td><td data-c="resi">3.0〜4.5%</td><td data-c="office">3.1〜3.5%</td><td data-c="retail">3.4〜4.0%</td></tr>
+   <tr><td>東京周辺・主要都市</td><td data-c="resi">4.5〜5.5%</td><td data-c="office">4.0〜5.0%</td><td data-c="retail">4.5〜5.5%</td></tr>
+   <tr><td>地方主要都市・その他</td><td data-c="resi">5.5〜7.0%以上</td><td data-c="office">5.0〜6.5%以上</td><td data-c="retail">5.5〜7.0%以上</td></tr></table></details>`
+};
+function updateRefs(r){
+  const cols=+state.ptype===0?['office']:+state.ptype===1?['resi']:['office','resi'];
+  document.querySelectorAll('#refCap [data-c]').forEach(e=>e.classList.toggle('hl',cols.includes(e.dataset.c)));
+  let done=false; document.querySelectorAll('#refBM tr').forEach(tr=>{ const hit=!done&&r.gfaT<+tr.dataset.max; tr.classList.toggle('hl',hit); if(hit) done=true; });
+  const sum=$('opexSum'); if(sum){
+    const rent=r.stabNOI+r.stabOpex-(+state.utilInc||0);
+    sum.innerHTML=`<div><span>安定期のOpex（初年度水準）</span><b>${yen(r.stabOpex)}/年</b></div>
+      <div><span>経費率（Opex ÷ 総収入）</span><b>${pct(r.stabOpex/(rent+(+state.utilInc||0)))}</b></div>
+      <div><span>安定期のNOI</span><b>${yen(r.stabNOI)}/年</b></div>
+      <div><span>Capex（延床）</span><b>${yen(r.capexTAnnual)}/年</b></div>`; }
+}
 function buildInputs(){
   const gM=+state.gfaM2||0;
   $('inputs').innerHTML=FIELDS.map(([g,fs])=>g==='RENT'?unitsHTML():g==='USES'?usesHTML():
-    `<fieldset><legend>${g}</legend>${g==='取得'?`<div class="fields" style="margin-bottom:10px">${numF('g-m2','data-g="m2"','延床面積','㎡',+gM.toFixed(2),1)}${numF('g-t','data-g="t"','延床面積','坪',+(gM*0.3025).toFixed(2),0.1)}</div>`:''}<div class="fields">${fs.map(fieldHTML).join('')}</div>${g==='取得'?'<div class="acq-info" id="acqInfo"></div>':''}${g==='改修工事'?'<div class="sched" id="sched"></div>':''}</fieldset>`).join('');
+    `<fieldset><legend>${g}</legend>${g==='取得'?`<div class="fields" style="margin-bottom:10px">${numF('g-m2','data-g="m2"','延床面積','㎡',+gM.toFixed(2),1)}${numF('g-t','data-g="t"','延床面積','坪',+(gM*0.3025).toFixed(2),0.1)}</div>`:''}<div class="fields">${fs.map(fieldHTML).join('')}</div>${g==='取得'?'<div class="acq-info" id="acqInfo"></div>':''}${g==='改修工事'?'<div class="sched" id="sched"></div>':''}${REFS[g]||''}</fieldset>`).join('');
   syncFields();
 }
 function bindInputs(){
@@ -737,7 +826,7 @@ function bindInputs(){
   });
 }
 function syncFields(){
-  const off={exitCap:+state.saleMode===1, salePriceIn:+state.saleMode!==1,
+  const off={exitCap:+state.saleMode===1, saleBasis:+state.saleMode===1, salePriceIn:+state.saleMode!==1,
     corpRate:+state.taxMode!==0, indRate:+state.taxMode!==1,
     bldgRatio:+state.taxMode===2, bldgLife:+state.taxMode===2, capexLife:+state.taxMode===2,
     delayCost:+state.cDelay<=0, price:+state.priceMode===1, priceTsubo:+state.priceMode!==1};
@@ -794,7 +883,7 @@ function updateConv(){
   });
 }
 function renderInputSums(r){
-  syncFields(); drawSection();
+  syncFields(); drawSection(); updateRefs(r);
   const pr=r.p.price;
   const sp=syncPrice(state); state.price=sp.price; state.priceTsubo=sp.priceTsubo;  // 内部は丸めない
   const pin=+state.priceMode===1?$('i-price'):$('i-priceTsubo');                    // 入力していない側の表示だけ丸める
@@ -839,7 +928,7 @@ function render(){
     ['アンレバードIRR',pct(r.uirr),`税引前・NPV ${yen(r.npv)}`],
     ['改修後利回り（YoC）',pct(r.yoc,2),`取得時 ${pct(r.goingIn,2)}`],
     ['開発スプレッド',Math.round(r.spread*10000)+'bp','YoC − 出口時の利回り'],
-    ['必要エクイティ',yen(r.peakEq),r.minDSCR?`安定期最低DSCR ${r.minDSCR.toFixed(2)}`:'DSCR —']
+    ['必要エクイティ',yen(r.peakEq),r.minDSCR?`安定期最低DSCR（NCF）${r.minDSCR.toFixed(2)}`:'DSCR —']
   ];
   $('metrics').innerHTML=met.map(([k,v,s,lead])=>`<div class="m${lead?' lead':''}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
   renderNotes(r); renderInputSums(r); drawRent(r);
@@ -872,7 +961,7 @@ function renderNotes(r){
   }
   const ret=r.opDist+r.saleEq;
   if(ret>0 && r.saleEq/ret>0.75) notes.push(['info',`エクイティ回収の${Math.round(r.saleEq/ret*100)}%を売却に依存しています。保有中のインカムは薄く、出口市況の影響を強く受けます。`]);
-  if(r.minDSCR!==null && r.minDSCR<1.2) notes.push(['warn',`安定期の最低DSCRが${r.minDSCR.toFixed(2)}で、一般的な融資基準（1.2前後）を下回ります。`]);
+  if(r.minDSCR!==null && r.minDSCR<1.2) notes.push(['warn',`安定期の最低DSCRが${r.minDSCR.toFixed(2)}で、一般的な融資基準（1.2前後）を下回ります（NCF基準）。`]);
   if(r.years.filter(y=>y.phase!=='stab').some(y=>y.eqCF<0)) notes.push(['info','工事・リースアップ期間中にエクイティCFがマイナスになる年があります。追加出資の手当てを想定してください。']);
   $('notes').innerHTML=notes.map(([c,t])=>`<li class="${c}">${t}</li>`).join('');
 }
@@ -1003,18 +1092,19 @@ function drawDB(r){
 
 function drawSale(r){
   const p=r.p, taxed=r.taxMode!==2;
-  const priceNote=(r.saleMode===1?`指定価格（想定利回り ${pct(r.exitCapEff,2)}）`:`翌年NOI ${yen(r.fwdNOI)} ÷ 出口キャップ ${pct(p.exitCap,2)}`)+(r.gfaT>0?`／延床坪単価 ${(r.salePrice/r.gfaT).toFixed(1)}万円/坪（${(r.salePrice/r.gfaM2).toFixed(1)}万円/㎡）`:'');
+  const priceNote=(r.saleMode===1?`指定価格（想定NOI利回り ${pct(r.exitCapEff,2)}）`:r.saleBasis===1?`翌年NCF ${yen(r.fwdNCF)} ÷ 出口キャップ ${pct(p.exitCap,2)}（NOI利回り ${pct(r.exitCapEff,2)}）`:`翌年NOI ${yen(r.fwdNOI)} ÷ 出口キャップ ${pct(p.exitCap,2)}`)+(r.gfaT>0?`／延床坪単価 ${(r.salePrice/r.gfaT).toFixed(1)}万円/坪（${(r.salePrice/r.gfaM2).toFixed(1)}万円/㎡）`:'');
   const rows=[
     ['','売却価格',r.salePrice,priceNote],
     ['','売却費用',-r.saleCost,`売却価格の${pct(p.sale)}`],
     ['tot','売却手取り（税引前）',r.saleNet,''],
   ];
+  if(r.amSaleFee>0) rows.push(['','AM売却報酬',-r.amSaleFee,`売却価格の${pct(p.amSale)}（譲渡費用）`]);
   if(taxed){
-    rows.push(['','簿価',r.book,'取得価額＋改修費 − 減価償却累計']);
-    rows.push(['sub','土地',r.landBasis,`取得価額（諸費用込み）の${pct(1-p.bldgRatio,0)}`]);
+    rows.push(['','簿価',r.book,`取得価額${r.amAcqFee>0?'＋AM取得報酬':''}＋改修費 − 減価償却累計`]);
+    rows.push(['sub','土地',r.landBasis,`取得価額（諸費用${r.amAcqFee>0?'・AM取得報酬':''}込み）の${pct(1-p.bldgRatio,0)}`]);
     rows.push(['sub','建物（未償却残高）',r.bookB,`償却${Math.round(p.bldgLife)}年・定額法`]);
-    rows.push(['sub','改修費（未償却残高）',r.bookC,`償却${Math.round(p.capexLife)}年・定額法`]);
-    rows.push(['tot','譲渡益',r.gain,'売却手取り − 簿価']);
+    rows.push(['sub','改修費・Capex（未償却残高）',r.bookC,`償却${Math.round(p.capexLife)}年・定額法`]);
+    rows.push(['tot','譲渡益',r.gain,r.amSaleFee>0?'売却手取り − AM売却報酬 − 簿価':'売却手取り − 簿価']);
     rows.push(['','譲渡税等',-r.taxSale,r.gainLabel]);
   }
   rows.push(['','借入完済',-r.payoff,'売却時点の借入残高']);
@@ -1161,23 +1251,39 @@ function drawCF(r){
   let b=`<thead><tr><th>項目</th><th>取得時</th>${ys.map(y=>`<th>${y.t}年</th>`).join('')}</tr></thead><tbody>`;
   b+=row('フェーズ',['取得',...ys.map(y=>ph[y.phase])]);
   b+=row('稼働率',['—',...ys.map(y=>pct(y.occ))]);
+  const sec=t=>`<tr class="sec"><td colspan="${ys.length+2}">${t}</td></tr>`;
   b+=row('潜在総賃料',[null,...ys.map(y=>y.gpr)]);
   b+=row('フリーレント',[null,...ys.map(y=>-y.fr)]);
-  b+=row('実効総収入',[null,...ys.map(y=>y.egi)]);
-  b+=row('運営費',[null,...ys.map(y=>-y.opex)]);
+  b+=row('賃料収入（実効）',[null,...ys.map(y=>y.egi)]);
+  b+=row('水道光熱費収入',[null,...ys.map(y=>y.uInc)]);
+  b+=row('総収入',[null,...ys.map(y=>y.egi+y.uInc)],'em');
+  b+=sec('運営費（Opex）');
+  [['PM報酬','pm'],['BM費','bm'],['水道光熱費','util'],['修繕費','rep'],['公租公課','ptax'],['損害保険料','ins'],['リーシング費用','lease'],['その他運営費','oth']]
+    .forEach(([l,k])=>{ b+=row(l,[null,...ys.map(y=>-y[k])],'sub'); });
+  b+=row('Opex合計',[null,...ys.map(y=>-y.opex)]);
   b+=row('NOI',[null,...ys.map(y=>y.noi)],'em');
-  b+=row('修繕積立',[null,...ys.map(y=>-y.reserve)]);
+  b+=row('Capex（延床）',[null,...ys.map(y=>-y.capexHold)],'sub');
+  b+=row('Capex（収入比）',[null,...ys.map(y=>-y.reserve)],'sub');
+  b+=row('NCF',[null,...ys.map(y=>y.ncf)],'em');
   b+=row('改修費',[r.C===0?-r.capexAll:0,...ys.map(y=>-y.capex)]);
   b+=row('取得・諸費用',[-r.acqTotal,...ys.map(()=>0)]);
   b+=row('アンレバードCF',r.unCF,'em');
-  b+=row('借入実行',[r.eqCF[0]+r.acqTotal+(r.C===0?r.capexAll:0),...ys.map(y=>y.draw)]);
+  b+=sec('ファンド費用');
+  b+=row('AM取得報酬',[-r.amAcqFee,...ys.map(()=>0)],'sub');
+  b+=row('AM期中報酬',[null,...ys.map(y=>-y.amFee)],'sub');
+  b+=row('SPC運営費',[null,...ys.map(y=>-y.spc)],'sub');
+  b+=row('AM売却報酬',[null,...ys.map((y,k)=>k===last?-r.amSaleFee:null)],'sub');
+  b+=sec('借入');
+  b+=row('借入実行',[r.eqCF[0]+r.acqTotal+r.amAcqFee+(r.C===0?r.capexAll:0),...ys.map(y=>y.draw)]);
   b+=row('支払利息',[null,...ys.map(y=>-y.interest)]);
   b+=row('元本返済',[null,...ys.map(y=>-y.princ)]);
-  b+=row('DSCR',['—',...ys.map(y=>y.dscr?y.dscr.toFixed(2):'—')]);
+  b+=row('DSCR（NCF）',['—',...ys.map(y=>y.dscr?y.dscr.toFixed(2):'—')]);
+  b+=sec('売却');
   b+=row('売却手取り',[null,...ys.map((y,k)=>k===last?r.saleNet:null)]);
   b+=row('借入完済',[null,...ys.map((y,k)=>k===last?-r.payoff:null)]);
   b+=row('エクイティCF（税引前）',r.eqCF,'em');
   if(taxed){
+    b+=sec('税金');
     b+=row('減価償却',[null,...ys.map(y=>-y.dep)]);
     b+=row('課税所得（運営）',[null,...ys.map(y=>y.taxable)]);
     b+=row('税金（運営）',[null,...ys.map(y=>-y.taxOp)]);
