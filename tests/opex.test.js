@@ -171,15 +171,19 @@ test('移し替え：v7 の運営費はその他運営費へ、修繕積立は C
 });
 
 for (const [key, src] of [['default', v7Default], ['custom', v7Custom]]) {
-  test(`移し替え：v7 の${key === 'default' ? '初期値' : '独自入力'}データの結果が変更前と完全に一致する`, () => {
+  test(`移し替え：v7 の${key === 'default' ? '初期値' : '独自入力'}データの税引前の結果が変更前と完全に一致する`, () => {
     const st = E.migrate(clone(src));
     st.bld = { ...clone(E.BLD_DEF), ...st.bld };
     const r = E.model(st), g = v7Results[key];
+    // 税引前の指標は変更前と完全に一致する
     assert.equal(r.lirr, g.lirr, '税引前IRR');
-    assert.equal(r.atIRR, g.atIRR, '税引後IRR');
-    assert.equal(r.atProfit, g.atProfit, '税引後純利益');
     assert.equal(r.salePrice, g.salePrice, '売却価格');
     assert.equal(r.uirr, g.uirr, 'アンレバードIRR');
+    // 税引後は、修繕積立（Capex）を資産計上・減価償却する税務修正の分だけ変わる（変更前は税計算に反映されていなかった）
+    // 運営期間の税金は減り、税引後IRR・純利益は上がる。差の大きさは報告書に記載
+    assert.ok(r.taxOpTot < g.taxOpTot, '運営期間の税金は減る');
+    assert.ok(r.atIRR > g.atIRR, '税引後IRRは上がる');
+    assert.ok(r.atProfit > g.atProfit, '税引後純利益は上がる');
   });
 }
 
@@ -195,4 +199,17 @@ test('ファンド費用：初期値の物件でも NOI・NCF・売却価格は�
   assert.equal(r1.salePrice, r0.salePrice);
   assert.equal(r1.uirr, r0.uirr);
   assert.ok(r1.atIRR < r0.atIRR && r1.lirr < r0.lirr, '税引前・税引後IRRとも下がる');
+});
+
+// ---------- Capex の税務（資産計上・減価償却） ----------
+test('Capexの税務：各年の Capex（延床＋収入比）を資産に計上し、改修費の償却年数（15年）で定額償却', () => {
+  // 売却価格を NOI 基準にして、Capex の有無で売却価格が変わらないようにして比べる
+  // 毎年の Capex ＝ 121 ＋ 11.4 ＝ 132.4。1年目の償却 ＝ 132.4 ÷ 15 ＝ 8.8267、3年目 ＝ 3本分 ＝ 26.48
+  const r0 = E.model(simple({ saleBasis: 0, capexTsubo: 0, res: 0 })), r1 = E.model(simple({ saleBasis: 0 }));
+  near(r1.years[0].dep - r0.years[0].dep, 132.4 / 15, 1e-9, '1年目の償却');
+  near(r1.years[2].dep - r0.years[2].dep, 3 * 132.4 / 15, 1e-9, '3年目の償却');
+  // 売却時の未償却残高 ＝ Σ 132.4 × (1 − 償却年数/15) ＝ 132.4 × (5 − (5+4+3+2+1)/15) ＝ 132.4 × 4 ＝ 529.6
+  near(r1.book - r0.book, 529.6, 1e-9, '簿価');
+  near(r1.gain - r0.gain, -529.6, 1e-9, '譲渡益');
+  near(r1.salePrice, r0.salePrice, 1e-9, '売却価格は同じ（NOI基準）');
 });

@@ -544,6 +544,8 @@ function coreModel(raw){
   const taxBasis=acqTotal+amAcqFee, bBasis=taxBasis*p.bldgRatio, landBasis=taxBasis-bBasis;
   const bLife=Math.max(1,Math.round(p.bldgLife)), cLife=Math.max(1,Math.round(p.capexLife));
   const tranches=C===0?[{s:1,a:capexAll}]:ys.filter(y=>y.capex>0).map(y=>({s:y.t,a:y.capex}));
+  // 保有中の Capex（延床・収入比）も資産に計上し、支出した年から改修費の償却年数で定額償却する
+  ys.forEach(y=>{ const a=y.capexHold+y.reserve; if(a>0) tranches.push({s:y.t,a}); });
   const spent=tranches.reduce((a,tr)=>a+tr.a,0);
   const opRate=taxMode===0?p.corpRate:taxMode===1?p.indRate:0;
   let accB=0,accC=0,loss=0;
@@ -629,7 +631,7 @@ const FIELDS=[
  ['税金',[
   ['taxMode','課税主体','',0,1,['法人','個人','考慮しない']],['corpRate','法人実効税率','%',30.6,0.1],
   ['indRate','不動産所得の税率','%',33,1],['bldgRatio','建物比率','%',40,1],
-  ['bldgLife','建物の償却年数','年',20,1],['capexLife','改修費の償却年数','年',15,1]]]
+  ['bldgLife','建物の償却年数','年',20,1],['capexLife','改修費・Capexの償却年数','年',15,1]]]
 ];
 const PTYPES=[
  {label:'オフィス',units:[
@@ -1095,7 +1097,7 @@ function drawSale(r){
     rows.push(['','簿価',r.book,`取得価額${r.amAcqFee>0?'＋AM取得報酬':''}＋改修費 − 減価償却累計`]);
     rows.push(['sub','土地',r.landBasis,`取得価額（諸費用${r.amAcqFee>0?'・AM取得報酬':''}込み）の${pct(1-p.bldgRatio,0)}`]);
     rows.push(['sub','建物（未償却残高）',r.bookB,`償却${Math.round(p.bldgLife)}年・定額法`]);
-    rows.push(['sub','改修費（未償却残高）',r.bookC,`償却${Math.round(p.capexLife)}年・定額法`]);
+    rows.push(['sub','改修費・Capex（未償却残高）',r.bookC,`償却${Math.round(p.capexLife)}年・定額法`]);
     rows.push(['tot','譲渡益',r.gain,r.amSaleFee>0?'売却手取り − AM売却報酬 − 簿価':'売却手取り − 簿価']);
     rows.push(['','譲渡税等',-r.taxSale,r.gainLabel]);
   }
