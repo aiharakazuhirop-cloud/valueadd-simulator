@@ -160,7 +160,7 @@ test('ファンド費用の税務：期中報酬・SPCは損金、取得報酬�
 // ---------- 既存データの移し替え（v7 → v8） ----------
 test('移し替え：v7 の運営費はその他運営費へ、修繕積立は Capex（収入比）へ、ほかは0、売却はNOI基準', () => {
   const m = E.migrate(clone(v7Default));
-  assert.equal(m.ver, 8);
+  assert.equal(m.ver, 9, 'v7 → v8 → v9 と続けて移し替える');
   assert.equal(m.opexOther, 800);
   assert.equal(m.res, 3);
   for (const k of ['pmRate', 'bmTsubo', 'utilCost', 'utilInc', 'repTsubo', 'propTax', 'propTaxPost', 'ins', 'leaseMo', 'capexTsubo', 'amAcq', 'amFee', 'amSale', 'spc'])
@@ -187,9 +187,10 @@ for (const [key, src] of [['default', v7Default], ['custom', v7Custom]]) {
   });
 }
 
-test('移し替え：v8 形式のデータは変更しない', () => {
-  const v8 = simple();
-  assert.deepEqual(plain(E.migrate(clone(v8))), v8);
+test('移し替え：v8 形式のデータは運営費などの値を変更しない（v9 の項目が加わるだけ）', () => {
+  const v8 = simple(), m = plain(E.migrate(clone(v8)));
+  for (const k of Object.keys(v8)) if (k !== 'ver' && k !== 'uses') assert.deepEqual(m[k], v8[k], k);
+  assert.equal(m.ver, 9);
 });
 
 test('ファンド費用：初期値の物件でも NOI・NCF・売却価格は変わらず、税引後IRRだけ下がる', () => {

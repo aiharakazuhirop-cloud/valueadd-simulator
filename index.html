@@ -137,6 +137,7 @@ td.neg{color:var(--neg)}
 .sens td.hi{background:var(--pos-soft)}
 .sens td.lo{background:var(--neg-soft)}
 .sens td.base{outline:2px solid var(--accent);outline-offset:-2px;font-weight:700}
+.sens th small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
 .sens th.corner{font-size:11px;color:var(--muted);text-align:left}
 
 /* 主要指標は結果側の幅に応じて 6列／3列／2列（半端な空きマスを出さない） */
@@ -206,6 +207,16 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 .auto-formula b{color:var(--ink);font-weight:700}
 .btn.wide{grid-column:1/-1;width:100%}
 .print-head{display:none}
+.lk-tag{margin-left:6px;font-size:10px;padding:0 5px;border-radius:3px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.lk-tag.man{color:#1e2124;background:var(--accent);border-color:var(--accent)}
+.lk-tag.est{color:var(--accent);border-color:var(--accent)}
+.reauto{margin-left:4px;font:inherit;font-size:10px;padding:0 5px;border-radius:3px;border:1px solid var(--line);background:transparent;color:var(--accent);cursor:pointer}
+.reauto.hide{display:none}
+.legacy-box{font-size:12px;padding:8px 10px;border-radius:8px;border:1px solid var(--neg);background:var(--neg-soft);margin-bottom:10px;line-height:1.5}
+.legacy-box .btn{display:block;margin-top:6px;font-size:12px;padding:4px 10px}
+.avg-post{grid-column:span 1;font-size:11px;color:var(--muted);align-self:end;line-height:1.35}
+.avg-post b{color:var(--ink);font-size:12px}
+.bid-row b{color:var(--accent)}
 .ref{margin-top:8px;font-size:11.5px;color:var(--muted)}
 .ref summary{cursor:pointer;color:var(--accent);font-size:12px}
 .ref table{width:100%;margin-top:6px;font-size:11px;border-collapse:collapse}
@@ -337,9 +348,15 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
       </div>
 
       <section class="card">
-        <h2>感度分析：税引後IRR</h2>
-        <div class="sens-head"><p class="sub" id="sensSub"></p><label class="sel">列の項目 <select id="sensAxis"><option value="0">改修後賃料</option><option value="1">工期延長</option></select></label></div>
+        <h2 id="sensTitle">感度分析：税引後IRR</h2>
+        <div class="sens-head"><p class="sub" id="sensSub"></p><label class="sel">列の項目 <select id="sensAxis"><option value="0">新規テナント賃料</option><option value="1">工期延長</option></select></label></div>
         <div class="scroll"><table class="sens" id="sens"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>感度分析：取得価格 × 出口キャップ（指値の検討）</h2>
+        <p class="sub" id="bidSensSub"></p>
+        <div class="scroll"><table class="sens" id="bidSens"></table></div>
       </section>
 
       <section class="card cf-card">
@@ -359,8 +376,62 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 const PCT=['acq','occNow','occReno','rg','eg','res','ltv','cltv','rate','exitCap','sale','disc','target','corpRate','indRate','bldgRatio','pmRate','amAcq','amFee','amSale'];
 // 運営費の内訳（v8）。既存データの移し替えでは「その他運営費」以外を0にする
 const OPEX_KEYS=['pmRate','bmTsubo','utilCost','utilInc','repTsubo','propTax','propTaxPost','ins','leaseMo','capexTsubo','amAcq','amFee','amSale','spc'];
+// 連動する入力（v9）：manual[k] が true なら入力値、そうでなければ自動の値を使う
+const LINKED=['pmRate','bmTsubo','utilCost','utilInc','repTsubo','ins','capexTsubo','res','opexOther','leaseMo','propTax','propTaxPost','occReno'];
 const LT_RATE=0.20315, ST_RATE=0.3963;
-const USE_DEF={office:{stab:95,L:12,fr:3},resi:{stab:95,L:6,fr:0},retail:{stab:95,L:9,fr:2}};
+// BM費の自動値（円/坪/月）：基準点 250坪 500円・750坪 800円・1,500坪 1,500円 を直線でつなぐ（250坪以下・1,500坪以上は一定）
+const BM_PTS=[[250,500],[750,800],[1500,1500]];
+function bmAuto(t){
+  if(t<=BM_PTS[0][0]) return BM_PTS[0][1];
+  for(let i=1;i<BM_PTS.length;i++){ const [x0,y0]=BM_PTS[i-1],[x1,y1]=BM_PTS[i]; if(t<=x1) return y0+(t-x0)/(x1-x0)*(y1-y0); }
+  return BM_PTS[BM_PTS.length-1][1];
+}
+// 公租公課（万円/年）：固定資産税1.4%・都市計画税0.3%。住宅以外の土地は課税標準を評価額の70%（負担調整措置の上限）。
+// 住宅用地は併用住宅の率（5階以上の耐火建築物：住宅1/4以上0.5・1/2以上0.75・3/4以上1.0、それ以外：1/4以上0.5・1/2以上1.0）で按分し、
+// 小規模住宅用地（1戸200㎡まで）は固定1/6・都計1/3、一般住宅用地は固定1/3・都計2/3。敷地面積が未入力なら全部を小規模とみなす
+const PT_FIX=0.014, PT_CITY=0.003, PT_COMM=0.7;
+function propTaxCalc({land=0,bldg=0,resiShare=0,floors=1,siteM2=null,resiUnits=0}){
+  const s=resiShare, rate=floors>=5?(s>=0.75?1:s>=0.5?0.75:s>=0.25?0.5:0):(s>=0.5?1:s>=0.25?0.5:0);
+  const resiLand=land*rate, otherLand=land-resiLand;
+  const small=siteM2>0?Math.min(1,200*resiUnits/siteM2):1;
+  const resiTax=resiLand*(small/6+(1-small)/3)*PT_FIX+resiLand*(small/3+(1-small)*2/3)*PT_CITY;
+  const otherTax=otherLand*PT_COMM*(PT_FIX+PT_CITY), bldgTax=bldg*(PT_FIX+PT_CITY);
+  return {total:resiTax+otherTax+bldgTax,resiTax,otherTax,bldgTax,rate};
+}
+// 連動する入力の自動値。st は区画・物件価格を確定したもの、gT は延床（坪）
+function linkedAuto(st,gT){
+  const man=st.manual||{}, eff=k=>man[k]?+st[k]||0:a[k], a={};
+  a.pmRate=2; a.bmTsubo=bmAuto(gT); a.utilCost=gT*700*12/1e4; a.repTsubo=3000; a.ins=gT*100*0.0008;
+  a.capexTsubo=4000; a.res=0; a.opexOther=0; a.leaseMo=2;
+  a.utilInc=eff('utilCost')*0.8;
+  const units=st.units||[], area=units.reduce((x,u)=>x+(+u.n||0)*(+u.area||0),0);
+  const resiArea=units.filter(u=>u.use==='resi').reduce((x,u)=>x+(+u.n||0)*(+u.area||0),0);
+  const resiUnits=units.filter(u=>u.use==='resi').reduce((x,u)=>x+(+u.n||0),0);
+  const has=v=>v!==null&&v!==undefined&&v!==''&&isFinite(+v);
+  if(has(st.landVal)||has(st.bldgVal)){
+    a.propTax=propTaxCalc({land:has(st.landVal)?+st.landVal:0,bldg:has(st.bldgVal)?+st.bldgVal:0,resiShare:area>0?resiArea/area:0,
+      floors:floorPlan(st).F,siteM2:has(st.siteM2)?+st.siteM2:null,resiUnits}).total; a.propTaxEst=false;
+  } else { a.propTax=(+st.price||0)*0.005; a.propTaxEst=true; }                 // 評価額が未入力：物件価格 × 0.5% の推定値
+  a.propTaxPost=eff('propTax');
+  // 工事中稼働率：用途ごとの 現況稼働率 × 残る割合 を面積で加重平均（%）
+  const by={}; units.forEach(u=>{ by[u.use]=(by[u.use]||0)+(+u.n||0)*(+u.area||0); });
+  a.occReno=area>0?Object.entries(by).reduce((x,[k,ar])=>{ const c=(st.uses&&st.uses[k])||USE_DEF[k]||{}; const keep=c.keep!==undefined?+c.keep:(USE_DEF[k]||{}).keep||0;
+    return x+ar*(+st.occNow||0)*keep/100; },0)/area:0;
+  return a;
+}
+// 指値の上限：他の前提はそのままに物件価格だけを動かし、目標IRR（basis 0：税引後、1：税引前）に届く価格を二分法で求める
+function maxBid(st,target,basis){
+  const P0=+syncPrice(st).price||0; if(!(P0>0)) return {status:'error'};
+  const base={...st,priceMode:0};
+  const val=P=>{ const r=model({...base,price:P}), v=basis===1?r.lirr:r.atIRR;
+    if(v!==null) return v; const prof=basis===1?r.profit:r.atProfit; return prof>0?Infinity:-Infinity; };
+  let lo=P0*0.1; if(!(val(lo)>=target)) return {status:'unreachable'};
+  let hi=P0, k=0; while(val(hi)>=target){ lo=hi; hi*=1.5; if(++k>30) return {status:'error'}; }
+  for(let i=0;i<60;i++){ const m=(lo+hi)/2; if(val(m)>=target) lo=m; else hi=m; }
+  return {status:'ok',price:lo};
+}
+// keep：現在入居中の面積のうち改修後も残る割合（%）、up：残るテナントの値上げ率（%）
+const USE_DEF={office:{stab:95,L:12,fr:3,keep:60,up:5},resi:{stab:95,L:6,fr:0,keep:70,up:0},retail:{stab:95,L:9,fr:2,keep:100,up:0}};
 const USE_NAME={office:'オフィス',resi:'住宅',retail:'店舗'};
 
 const RR_DEF=[75,80,75];  // 想定レンタブル比の初期値（物件タイプ順：オフィス・住宅・複合、%）
@@ -407,6 +478,13 @@ function migrate(saved){
     s.opexOther=s.opex0!==undefined?+s.opex0:800; s.res=s.res!==undefined?+s.res:3; s.exitCap=s.exitCap!==undefined?+s.exitCap:4.5;
     OPEX_KEYS.forEach(k=>{ s[k]=0; }); s.saleBasis=0; s.amBase=0; s.ver=8;
   }
+  // v8 → v9：入っている値をすべて手動として扱い、賃料は旧方式のまま（結果を変えない）。新しい項目は0・空欄
+  if(s.ver===8){
+    s.manual=Object.fromEntries(LINKED.map(k=>[k,true])); s.rentModel='legacy';
+    s.landVal=null; s.bldgVal=null; s.siteM2=null; s.evictMo=0; s.evictTax=0; s.evictLoan=0; s.bidBasis=0;
+    if(s.uses) s.uses=Object.fromEntries(Object.entries(s.uses).map(([k,c])=>[k,{keep:(USE_DEF[k]||{}).keep,up:(USE_DEF[k]||{}).up,...c}]));
+    s.ver=9;
+  }
   return s;
 }
 function genUnits(st){
@@ -431,7 +509,10 @@ function model(raw){
   const st={...raw}; if(+raw.rentMode!==1) st.units=genUnits(raw);
   const gM=Math.max(0,+raw.gfaM2||0), gT=gM*0.3025;
   if(+raw.priceMode===1) st.price=gT*(+raw.priceTsubo||0);
-  const r=coreModel(st); r.gfaM2=gM; r.gfaT=gT; r.nraT=r.units.reduce((a,u)=>a+u.n*u.area,0);
+  // 連動する入力：manual を持つデータ（v9以降）だけ、手動でない項目を自動の値にする
+  const auto=linkedAuto(st,gT);
+  if(raw.manual){ LINKED.forEach(k=>{ if(!raw.manual[k]) st[k]=auto[k]; }); st.occRenoAuto=!raw.manual.occReno; }
+  const r=coreModel(st); r.gfaM2=gM; r.auto=auto; r.eff=Object.fromEntries(LINKED.map(k=>[k,+st[k]||0])); r.gfaT=gT; r.nraT=r.units.reduce((a,u)=>a+u.n*u.area,0);
   // レンタブル比：全体 ＝ 専有合計 ÷ 延床、地上 ＝ 地上階の専有 ÷ 地上階の延床（延床 × 地上階数 ÷ 全階数の均等割り）
   // 区画手入力では区画に階の情報がないため、地上レンタブル比は出さない
   let nraAbove=null, gfaAbove=null, above=null;
@@ -473,10 +554,21 @@ function coreModel(raw){
   const gpr0=gprCurM*12, gprPost=gprPostM*12;
   const grp={}; units.forEach(u=>{ const g=grp[u.use]||(grp[u.use]={cur:0,post:0,area:0}); g.cur+=u.cur; g.post+=u.post; g.area+=u.n*u.area; });
   const useKeys=Object.keys(grp);
-  useKeys.forEach(k=>{ const c=(raw.uses&&raw.uses[k])||USE_DEF[k]; grp[k].stab=(+c.stab)/100; grp[k].L=Math.max(0,Math.round(+c.L||0)); grp[k].fr=Math.max(0,+c.fr||0); });
+  useKeys.forEach(k=>{ const c=(raw.uses&&raw.uses[k])||USE_DEF[k]; grp[k].stab=(+c.stab)/100; grp[k].L=Math.max(0,Math.round(+c.L||0)); grp[k].fr=Math.max(0,+c.fr||0);
+    grp[k].keep=(c.keep!==undefined?+c.keep:USE_DEF[k].keep)/100; grp[k].up=(c.up!==undefined?+c.up:USE_DEF[k].up)/100; });
+  // 新方式（rentModel 'new'）：残るテナントは工事中は現況単価、竣工後は 現況 ×（1＋値上げ率）。新しいテナントは新規単価でリースアップ
+  //   残る面積 S ＝ 現況稼働率 × 残る割合。工事中稼働率が自動なら用途ごとに S、手動なら全用途その値（残る面積はそれを超えない）
+  const newRent=raw.rentModel==='new';
+  useKeys.forEach(k=>{ const G=grp[k], S=p.occNow*G.keep;
+    G.renoOcc=raw.occRenoAuto?S:p.occReno; G.stay=C>0?Math.min(S,G.renoOcc):S;
+    const st=Math.min(G.stay,G.stab), stabRentM=st*G.cur*(1+G.up)+Math.max(0,G.stab-st)*G.post;
+    G.stabRentM=stabRentM; G.avgPostP=G.stab>0&&G.area>0?(newRent?stabRentM:G.post*G.stab)/G.stab/G.area*10000:0; });
+  // 立退料：退去する面積（現況稼働率 × (1 − 残る割合)）× 現況の月額 × 月数。着工の月（1か月目）に支払う
+  const evictTotal=useKeys.reduce((a,k)=>a+grp[k].cur*p.occNow*(1-grp[k].keep),0)*Math.max(0,num('evictMo'));
+  const evictTax=Math.round(num('evictTax')), evictLoan=Math.round(num('evictLoan'));
   const L=useKeys.length?Math.max(...useKeys.map(k=>grp[k].L)):0;
   const delayCost=D>0?p.delayCost:0, capexAll=p.capex+delayCost;
-  const acqTotal=p.price*(1+p.acq), totalCost=acqTotal+capexAll;
+  const acqTotal=p.price*(1+p.acq), totalCost=acqTotal+capexAll+evictTotal;
   const amAcqFee=p.amAcq*p.price;                                               // AM取得報酬：取得原価に含める（NOI・NCFには影響しない）
   const ptaxSwitch=C>0?12*Math.ceil(C/12):0;                                    // 公租公課：竣工した月を含む年の翌年から改修後の額
 
@@ -485,8 +577,19 @@ function coreModel(raw){
   for(let m=1;m<=12*(N+1);m++){
     const yi=Math.floor((m-1)/12), g=Math.pow(1+p.rg,yi), ge=Math.pow(1+p.eg,yi);
     const share=C===0?1:Math.min(1,(m-0.5)/C);
-    let gpr=0,egiG=0,fr=0,lease=0,leasing=false;
-    useKeys.forEach(k=>{ const G=grp[k], gp=(G.cur+(G.post-G.cur)*share)*g; let occ;
+    let gpr=0,egiG=0,fr=0,lease=0,leasing=false,occA=0,areaA=0;
+    if(newRent) useKeys.forEach(k=>{ const G=grp[k]; let occ, rent, gp;
+      if(m<=C){ occ=G.renoOcc; gp=G.cur*g; rent=gp*occ; }
+      else{ const start=G.stay, kk=m-C;
+        occ=G.L===0?G.stab:start+(G.stab-start)*Math.min(1,(kk-0.5)/G.L);
+        if(kk<=G.L) leasing=true;
+        const stay=Math.min(start,occ);
+        gp=stay*G.cur*(1+G.up)*g+(1-stay)*G.post*g; rent=stay*G.cur*(1+G.up)*g+(occ-stay)*G.post*g;
+        const gap=Math.max(0,G.stab-start);
+        if(G.fr>0&&gap>0){ if(G.L===0){ if(kk===1) fr+=gap*G.post*g*G.fr; } else if(kk<=G.L) fr+=gap*G.post*g*G.fr/G.L; }
+        if(ox.lease>0&&gap>0){ if(G.L===0){ if(kk===1) lease+=gap*G.post*g*ox.lease; } else if(kk<=G.L) lease+=gap*G.post*g*ox.lease/G.L; } }
+      gpr+=gp; egiG+=rent; occA+=occ*G.area; areaA+=G.area; });
+    else useKeys.forEach(k=>{ const G=grp[k], gp=(G.cur+(G.post-G.cur)*share)*g; let occ;
       if(m<=C) occ=p.occReno;
       else{ const start=C>0?p.occReno:p.occNow, kk=m-C;
         occ=G.L===0?G.stab:start+(G.stab-start)*Math.min(1,(kk-0.5)/G.L);
@@ -497,7 +600,8 @@ function coreModel(raw){
         if(ox.lease>0&&gap>0){ if(G.L===0){ if(kk===1) lease+=gap*G.post*g*ox.lease; } else if(kk<=G.L) lease+=gap*G.post*g*ox.lease/G.L; } }
       gpr+=gp; egiG+=gp*occ; });
     const phase=m<=C?'reno':(leasing?'lease':'stab');
-    const egi=egiG-fr, occ=gpr>0?egiG/gpr:0;
+    const egi=egiG-fr, occ=newRent?(areaA>0?occA/areaA:0):(gpr>0?egiG/gpr:0);
+    const evict=m===1?evictTotal:0;
     const pm=p.pmRate*egi, bm=ox.bm*ge, util=ox.util/12*ge, uInc=ox.uInc/12*ge, rep=ox.rep/12*ge,
       ptax=(m>ptaxSwitch?ox.ptaxPost:ox.ptax)/12*ge, ins=ox.ins/12*ge, oth=ox.oth/12*ge;
     const opex=pm+bm+util+rep+ptax+ins+lease+oth;
@@ -507,14 +611,14 @@ function coreModel(raw){
       if(Cplan>0){ if(m<=Cplan) capex+=p.capex/Cplan; } else if(m<=C) capex+=p.capex/C;
       if(D>0&&m>Cplan&&m<=C) capex+=delayCost/D;
     }
-    mo.push({m,gpr,egi,uInc,pm,bm,util,rep,ptax,ins,lease,oth,opex,noi:egi+uInc-opex,capex,capexHold,occ,phase,fr});
+    mo.push({m,gpr,egi,uInc,pm,bm,util,rep,ptax,ins,lease,oth,opex,noi:egi+uInc-opex,capex,capexHold,occ,phase,fr,evict});
   }
   const years=[];
   for(let t=1;t<=N+1;t++){
     const ms=mo.slice(12*(t-1),12*t), sum=k=>ms.reduce((a,x)=>a+x[k],0);
     const gpr=sum('gpr'), egi=sum('egi'), opex=sum('opex'), capex=sum('capex'), fr=sum('fr'), occ=gpr>0?ms.reduce((a,x)=>a+x.gpr*x.occ,0)/gpr:0;
     const phase=ms.some(x=>x.phase==='reno')?'reno':ms.some(x=>x.phase==='lease')?'lease':'stab';
-    const it={}; ['uInc','pm','bm','util','rep','ptax','ins','lease','oth','capexHold'].forEach(k=>it[k]=sum(k));
+    const it={}; ['uInc','pm','bm','util','rep','ptax','ins','lease','oth','capexHold','evict'].forEach(k=>it[k]=sum(k));
     const noi=egi+it.uInc-opex, reserve=p.res*egi;
     years.push({t,gpr,egi,opex,noi,capex,fr,occ,phase,reserve,...it,ncf:noi-it.capexHold-reserve});
   }
@@ -525,7 +629,7 @@ function coreModel(raw){
   const eqCF=[-(acqTotal+(C===0?capexAll:0))+bal-amAcqFee], unCF=[-(acqTotal+(C===0?capexAll:0))];
   let minDSCR=Infinity;
   for(let i=0;i<N;i++){
-    const y=years[i], draw=p.cltv*y.capex;
+    const y=years[i], draw=p.cltv*y.capex+(evictLoan===1?p.cltv*y.evict:0);    // 立退料の融資は選択式（初期値は融資なし）
     bal+=draw;
     const interest=bal*p.rate; let princ=0;
     if(y.t>io){ const n=Math.max(1,amort-(y.t-1-io)); princ=Math.min(bal,annuity(bal,p.rate,n)-interest); }
@@ -535,7 +639,7 @@ function coreModel(raw){
     if(y.dscr!==null&&y.phase==='stab') minDSCR=Math.min(minDSCR,y.dscr);
     // ファンド費用（NCFの下）：AM期中報酬（物件価格またはNOI × 年率）と SPC 運営費（経費上昇率で増加）
     y.amFee=ox.amBase===1?p.amFee*y.noi:p.amFee*p.price; y.spc=ox.spc*Math.pow(1+p.eg,y.t-1); y.fund=y.amFee+y.spc;
-    y.unCF=y.ncf-y.capex; y.eqCF=y.unCF+draw-y.ds-y.fund;
+    y.unCF=y.ncf-y.capex-y.evict; y.eqCF=y.unCF+draw-y.ds-y.fund;
     eqCF.push(y.eqCF); unCF.push(y.unCF);
   }
 
@@ -547,7 +651,7 @@ function coreModel(raw){
   eqCF[N]+=saleNet-payoff-amSaleFee; unCF[N]+=saleNet;
 
   // tax
-  const taxBasis=acqTotal+amAcqFee, bBasis=taxBasis*p.bldgRatio, landBasis=taxBasis-bBasis;
+  const taxBasis=acqTotal+amAcqFee+(evictTax===1?evictTotal:0), bBasis=taxBasis*p.bldgRatio, landBasis=taxBasis-bBasis;
   const bLife=Math.max(1,Math.round(p.bldgLife)), cLife=Math.max(1,Math.round(p.capexLife));
   const tranches=C===0?[{s:1,a:capexAll}]:ys.filter(y=>y.capex>0).map(y=>({s:y.t,a:y.capex}));
   // 保有中の Capex（延床・収入比）も資産に計上し、支出した年から改修費の償却年数で定額償却する
@@ -558,11 +662,11 @@ function coreModel(raw){
   ys.forEach(y=>{
     const dB=y.t<=bLife?bBasis/bLife:0; let dC=0;
     tranches.forEach(tr=>{ if(y.t>=tr.s&&y.t<tr.s+cLife) dC+=tr.a/cLife; });
-    accB+=dB; accC+=dC; y.dep=dB+dC; y.taxable=y.noi-y.interest-y.dep-y.fund; y.taxOp=0;
+    accB+=dB; accC+=dC; y.dep=dB+dC; y.taxable=y.noi-y.interest-y.dep-y.fund-(evictTax===0?y.evict:0); y.taxOp=0;   // 立退料：0 支払った年の経費、1 取得価額、2 譲渡費用
     if(y.t<N){ const ti=y.taxable-loss; if(ti<0){loss=-ti}else{loss=0; y.taxOp=ti*opRate} }
   });
   const bookB=bBasis-accB, bookC=spent-accC, book=landBasis+bookB+bookC;
-  const gain=saleNet-amSaleFee-book;                                            // AM売却報酬は譲渡費用
+  const gain=saleNet-amSaleFee-(evictTax===2?evictTotal:0)-book;                                            // AM売却報酬は譲渡費用
   let taxSale=0,gainRate=0,gainLabel='考慮しない';
   const tiN=last.taxable-loss;
   if(taxMode===0){
@@ -578,7 +682,7 @@ function coreModel(raw){
   const pre=flowStats(eqCF), un=flowStats(unCF), at=flowStats(atCF);
   let cum=0,peak=0; eqCF.forEach(c=>{cum+=c;peak=Math.min(peak,cum)});
   const saleEq=saleNet-payoff-amSaleFee, opDist=eqCF.slice(1).reduce((a,c)=>a+c,0)-saleEq;
-  const stabRent=useKeys.reduce((a,k)=>a+grp[k].post*12*grp[k].stab,0), curRent=gpr0*p.occNow;
+  const stabRent=newRent?useKeys.reduce((a,k)=>a+grp[k].stabRentM*12,0):useKeys.reduce((a,k)=>a+grp[k].post*12*grp[k].stab,0), curRent=gpr0*p.occNow;
   const stabOpex=annualOpex(stabRent,ox.ptaxPost), curOpex=annualOpex(curRent,ox.ptax);
   const stabNOI=stabRent+ox.uInc-stabOpex, curNOI=curRent+ox.uInc-curOpex;
   const capForValue=capEff||p.exitCap, stabValue=stabNOI/capForValue, totalDebt=acqLoan+p.cltv*capexAll;
@@ -591,7 +695,7 @@ function coreModel(raw){
     fwdNOI,salePrice,saleCost,saleNet,payoff,saleEq,opDist,exitCapEff:capEff,
     minDSCR:isFinite(minDSCR)?minDSCR:null,
     exitOcc:last.occ,exitGPR:last.gpr,exitOpexRatio:last.opex/(last.egi+last.uInc),entryOpexRatio:curRent+ox.uInc>0?curOpex/(curRent+ox.uInc):0,
-    stabOpex,curOpex,gT,amAcqFee,amSaleFee,fwdNCF,saleBasis:ox.saleBasis,capexTAnnual:ox.capexT,
+    stabOpex,curOpex,stabRent,evictTotal,rentModel:newRent?'new':'legacy',gT,amAcqFee,amSaleFee,fwdNCF,saleBasis:ox.saleBasis,capexTAnnual:ox.capexT,
     totalDebt,entryEquity:totalCost-totalDebt,
     landBasis,bookB,bookC,book,gain,taxSale,taxOpTot,gainRate,gainLabel,atSale:saleEq-taxSale
   };
@@ -609,16 +713,20 @@ const FIELDS=[
  ['RENT',[]],
  ['USES',[]],
  ['改修工事',[
-  ['capex','改修費（予定）','万円',6000,100],['occReno','工事中稼働率','%',70,1],
+  ['capex','改修費（予定）','万円',6000,100],['occReno','工事中稼働率','%',48,1],
   ['cMonths','予定工期','か月',10,1],['cDelay','工期延長','か月',0,1],
-  ['delayCost','延長に伴う追加費用','万円',0,50]]],
+  ['delayCost','延長に伴う追加費用','万円',0,50],['evictMo','立退料（退去分の賃料の）','か月',0,1],
+  ['evictLoan','立退料の資金','',0,1,['融資なし（自己資金）','改修費と同じ割合で融資']],
+  ['evictTax','立退料の税務','',0,1,['支払った年の経費','取得価額に含める','譲渡費用にする']]]],
  ['成長率',[
   ['rg','賃料上昇率','%/年',1,0.1],['eg','経費上昇率','%/年',1.5,0.1]]],
  ['運営費（Opex）',[
   ['pmRate','PM報酬（賃料収入の）','%',2,0.1],['bmTsubo','BM費（延床）','円/坪/月',600,50],
   ['utilCost','水道光熱費','万円/年',300,10],['utilInc','水道光熱費収入','万円/年',240,10],
   ['repTsubo','修繕費（延床）','円/坪/年',3000,100],['ins','損害保険料','万円/年',30,5],
-  ['propTax','公租公課','万円/年',330,10],['propTaxPost','公租公課（改修後）','万円/年',330,10],
+  ['landVal','土地の評価額','万円',null,100],['bldgVal','建物の評価額','万円',null,100],
+  ['siteM2','敷地面積（任意）','㎡',null,10],
+  ['propTax','公租公課','万円/年',250,10],['propTaxPost','公租公課（改修後）','万円/年',250,10],
   ['leaseMo','リーシング費用','新規賃料のか月',2,0.5],['opexOther','その他運営費','万円/年',40,10]]],
  ['資本的支出（Capex）',[
   ['capexTsubo','Capex（延床）','円/坪/年',4000,100],['res','Capex（収入比）','%/収入',0,0.5]]],
@@ -633,7 +741,8 @@ const FIELDS=[
   ['saleMode','売却価格の決め方','',0,1,['キャップレートで算出','金額を指定']],
   ['saleBasis','キャップレートを掛ける収益','',1,1,['NOI（Capex控除前）','NCF（Capex控除後）']],
   ['exitCap','出口キャップレート','%',4.3,0.05],['salePriceIn','売却価格','万円',75000,100],['N','保有期間','年',5,1],
-  ['sale','売却費用','%',3,0.5],['disc','割引率（NPV）','%',7,0.5],['target','目標IRR（税引後）','%',10,0.5]]],
+  ['sale','売却費用','%',3,0.5],['disc','割引率（NPV）','%',7,0.5],['target','目標IRR','%',10,0.5],
+  ['bidBasis','目標IRR・指値の基準','',0,1,['税引後IRR','税引前IRR']]]],
  ['税金',[
   ['taxMode','課税主体','',0,1,['法人','個人','考慮しない']],['corpRate','法人実効税率','%',30.6,0.1],
   ['indRate','不動産所得の税率','%',33,1],['bldgRatio','建物比率','%',40,1],
@@ -655,16 +764,19 @@ const PTYPES=[
 const clone=o=>JSON.parse(JSON.stringify(o));
 const DEFAULT_UNITS=PTYPES[0].units;
 const DEFAULTS={rentAdj:0,sensAxis:0}; FIELDS.forEach(([,fs])=>fs.forEach(f=>DEFAULTS[f[0]]=f[3]));
-DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210; DEFAULTS.propName=''; DEFAULTS.ver=8;
-// 保存キー：v8 がなければ v7、それもなければ v6 を読み、migrate で v8 形式に移す。旧キーは旧版へ戻したときのために消さない
-const KEY='valueadd-sim-v8', OLD_KEYS=['valueadd-sim-v7','valueadd-sim-v6'];
+DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210; DEFAULTS.propName=''; DEFAULTS.ver=9;
+DEFAULTS.manual={}; DEFAULTS.rentModel='new';                                   // 新規データ：連動はすべて自動、賃料は新方式
+// 保存キー：v9 がなければ v8・v7・v6 の順に読み、migrate で v9 形式に移す。旧キーは旧版へ戻したときのために消さない
+const KEY='valueadd-sim-v9', OLD_KEYS=['valueadd-sim-v8','valueadd-sim-v7','valueadd-sim-v6'];
+const NULLABLE=['landVal','bldgVal','siteM2'];
 let state={...DEFAULTS}, firstRender=true;
 try{
   let s=JSON.parse(localStorage.getItem(KEY)||'null');
   if(!s) for(const k of OLD_KEYS){ const o=localStorage.getItem(k); if(o){ s=migrate(JSON.parse(o)); break; } }
   if(s) state={...DEFAULTS,...s};
 }catch(e){}
-state.units=clone(state.units||DEFAULT_UNITS); state.uses={...clone(USE_DEF),...clone(state.uses||{})};
+state.units=clone(state.units||DEFAULT_UNITS); state.uses=Object.fromEntries(Object.keys(USE_DEF).map(k=>[k,{...clone(USE_DEF[k]),...clone((state.uses||{})[k]||{})}]));
+state.manual={...(state.manual||{})};
 state.bld={...clone(BLD_DEF),...clone(state.bld||{})}; state.bld.price={...clone(BLD_DEF.price),...(state.bld.price||{})};
 
 const $=id=>document.getElementById(id);
@@ -677,9 +789,10 @@ const sg=v=>(v>=0?'+':'−')+yen(Math.abs(v));
 // 入力欄に出す値。内部値は丸めずに持ち、表示だけ丸める項目
 const IN_DIGITS={price:0,priceTsubo:1};
 const fmtIn=(k,v)=>k in IN_DIGITS&&isFinite(+v)?+(+v).toFixed(IN_DIGITS[k]):v;
+const lkHTML=k=>LINKED.includes(k)?`<span class="lk-tag" id="tag-${k}"></span><button type="button" class="reauto" id="ra-${k}" data-reauto="${k}">自動に戻す</button>`:'';
 const fieldHTML=([k,l,u,,st,opts,cv])=>opts
   ? `<div class="f wide" id="w-${k}"><label for="i-${k}">${l}</label><div class="in"><select id="i-${k}" data-k="${k}">${opts.map((o,i)=>`<option value="${i}"${+state[k]===i?' selected':''}>${o}</option>`).join('')}</select></div></div>`
-  : `<div class="f" id="w-${k}"><label for="i-${k}">${l}</label><div class="in"><input id="i-${k}" data-k="${k}" ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${fmtIn(k,state[k])}"><span class="u">${u}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
+  : `<div class="f${LINKED.includes(k)?' lk':''}" id="w-${k}"><label for="i-${k}">${l}${lkHTML(k)}</label><div class="in"><input id="i-${k}" data-k="${k}" ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${state[k]===null||state[k]===undefined?'':fmtIn(k,state[k])}" ${NULLABLE.includes(k)?'placeholder="未入力"':''}><span class="u">${u}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
 const numF=(id,attr,l,un,val,st,cv)=>`<div class="f" id="w-${id}"><label for="${id}">${l}</label><div class="in"><input id="${id}" ${attr} ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${val}"><span class="u">${un}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
 const selOpts=(arr,cur)=>arr.map(([v,l])=>`<option value="${v}"${String(cur)===String(v)?' selected':''}>${l}</option>`).join('');
 function curUnits(){ return +state.rentMode===1?state.units:genUnits(state); }
@@ -709,8 +822,8 @@ function unitsHTML(){
       ${numF('b-resiUnit','data-b="resiUnit"','住戸面積','坪/戸',b.resiUnit,0.5,'t')}
     </div>
     <div class="bsec" id="bldSec"></div>
-    <div class="ptab"><div class="ptab-h"><span>坪単価</span><span>現況</span><span>改修後</span></div>
-      ${['office','resi','retail'].map(k=>`<div class="ptab-r" id="pr-${k}"><span>${USE_NAME[k]}</span>${[0,1].map(i=>`<div><div class="in"><input type="number" inputmode="decimal" step="100" data-bp="${k}" data-bi="${i}" data-cvk="p" value="${b.price[k][i]}" aria-label="${USE_NAME[k]}の${i?'改修後':'現況'}坪単価"><span class="u">円/坪</span></div><div class="cv"></div></div>`).join('')}</div>`).join('')}
+    <div class="ptab"><div class="ptab-h"><span>坪単価</span><span>現況</span><span>新規テナント</span></div>
+      ${['office','resi','retail'].map(k=>`<div class="ptab-r" id="pr-${k}"><span>${USE_NAME[k]}</span>${[0,1].map(i=>`<div><div class="in"><input type="number" inputmode="decimal" step="100" data-bp="${k}" data-bi="${i}" data-cvk="p" value="${b.price[k][i]}" aria-label="${USE_NAME[k]}の${i?'新規テナント':'現況'}坪単価"><span class="u">円/坪</span></div><div class="cv"></div></div>`).join('')}</div>`).join('')}
     </div>
     <p class="hint">坪単価は共益費込みの月額（円/坪）。オフィスは下層階、住宅は上層階から割り当てます。地下の坪単価は、地下の用途の単価に地上比を掛けて計算します。</p>`;
   } else {
@@ -720,7 +833,7 @@ function unitsHTML(){
         <select class="uuse" data-u="${i}" data-f="use" aria-label="用途">${selOpts(Object.entries(USE_NAME),u.use)}</select>
         <button type="button" class="del" data-del="${i}" aria-label="${u.name}を削除">削除</button></div>
       <div class="fields">
-        ${[['n','区画数','区画',1],['area','専有面積','坪/区画',0.1,'t'],['cur','現況坪単価','円/坪',100,'p'],['post','改修後坪単価','円/坪',100,'p']].map(([f,l,un,st,cv])=>numF(`u-${i}-${f}`,`data-u="${i}" data-f="${f}"`,l,un,u[f],st,cv)).join('')}
+        ${[['n','区画数','区画',1],['area','専有面積','坪/区画',0.1,'t'],['cur','現況坪単価','円/坪',100,'p'],['post','新規テナント単価','円/坪',100,'p']].map(([f,l,un,st,cv])=>numF(`u-${i}-${f}`,`data-u="${i}" data-f="${f}"`,l,un,u[f],st,cv)).join('')}
       </div>
       <div class="unit-sum" id="us-${i}"></div>
     </div>`).join('')}
@@ -729,11 +842,15 @@ function unitsHTML(){
   return h+`<div class="rent-sum" id="rentSum"></div></fieldset>`;
 }
 function usesHTML(){
+  const legacy=state.rentModel!=='new';
   return `<fieldset><legend>用途別の稼働条件</legend>
-    <p class="hint">竣工後、各用途が安定稼働率まで埋まる期間と、新規契約に付けるフリーレント。</p>
+    ${legacy?`<div class="legacy-box">旧方式で計算中：入居中のテナントも改修後は新規テナントの単価になる前提です（以前の版の計算）。残るテナントの割合・値上げ率は使われません。<button type="button" class="btn" id="toNewRent">新方式に切り替える</button></div>`:''}
+    <p class="hint">竣工後、各用途が安定稼働率まで埋まる期間と、新規契約に付けるフリーレント。残る割合は「現在入居中の面積のうち改修後も残る割合」。残るテナントは竣工後に 現況単価 ×（1＋値上げ率）、新しいテナントは新規テナント単価で入居。</p>
     ${['office','resi','retail'].map(k=>{ const c=state.uses[k]||USE_DEF[k];
       return `<div class="use-row" id="ur-${k}"><div class="use-name">${USE_NAME[k]}</div><div class="fields three">
         ${[['stab','安定稼働率','%',0.5],['L','リースアップ','か月',1],['fr','フリーレント','か月',0.5]].map(([f,l,un,st])=>numF(`us-${k}-${f}`,`data-use="${k}" data-uf="${f}"`,l,un,c[f],st)).join('')}
+        ${[['keep','残る割合','%',5],['up','値上げ率','%',0.5]].map(([f,l,un,st])=>numF(`us-${k}-${f}`,`data-use="${k}" data-uf="${f}"`,l,un,c[f],st)).join('')}
+        <div class="f avg-post" id="avg-${k}"></div>
       </div></div>`; }).join('')}
   </fieldset>`;
 }
@@ -767,7 +884,7 @@ function updateRefs(r){
 function buildInputs(){
   const gM=+state.gfaM2||0;
   $('inputs').innerHTML=FIELDS.map(([g,fs])=>g==='RENT'?unitsHTML():g==='USES'?usesHTML():
-    `<fieldset><legend>${g}</legend>${g==='取得'?`<div class="fields" style="margin-bottom:10px">${numF('g-m2','data-g="m2"','延床面積','㎡',+gM.toFixed(2),1)}${numF('g-t','data-g="t"','延床面積','坪',+(gM*0.3025).toFixed(2),0.1)}</div>`:''}<div class="fields">${fs.map(fieldHTML).join('')}</div>${g==='取得'?'<div class="acq-info" id="acqInfo"></div>':''}${g==='改修工事'?'<div class="sched" id="sched"></div>':''}${REFS[g]||''}</fieldset>`).join('');
+    `<fieldset><legend>${g}</legend>${g==='取得'?`<div class="fields" style="margin-bottom:10px">${numF('g-m2','data-g="m2"','延床面積','㎡',+gM.toFixed(2),1)}${numF('g-t','data-g="t"','延床面積','坪',+(gM*0.3025).toFixed(2),0.1)}</div>`:''}<div class="fields">${fs.map(fieldHTML).join('')}</div>${g==='取得'?'<div class="acq-info" id="acqInfo"></div><div class="acq-info" id="bidInfo"></div>':''}${g==='改修工事'?'<div class="sched" id="sched"></div>':''}${REFS[g]||''}</fieldset>`).join('');
   syncFields();
 }
 function bindInputs(){
@@ -812,11 +929,15 @@ function bindInputs(){
       save(); render(); return;
     }
     const k=t.dataset.k; if(!k) return;
+    if(NULLABLE.includes(k)&&t.value.trim()===''){ state[k]=null; save(); render(); return; }
     const v=parseFloat(t.value); if(!isFinite(v)) return;
-    state[k]=v; save(); render();
+    state[k]=v; if(LINKED.includes(k)) state.manual[k]=true;                      // 連動する欄を書き換えたら「手動」
+    save(); render();
   });
   $('inputs').addEventListener('click',e=>{
     const t=e.target;
+    if(t.dataset.reauto){ delete state.manual[t.dataset.reauto]; save(); render(); return; }
+    if(t.id==='toNewRent'){ state.rentModel='new'; save(); buildInputs(); render(); return; }
     if(t.id==='overwriteDetail'){ state.bld=overwriteDetail(state); save(); buildInputs(); render(); return; }
     if(t.id==='addUnit'){ const lastU=state.units[state.units.length-1]||{use:'office'};
       state.units.push({name:'タイプ'+(state.units.length+1),use:lastU.use||'office',n:1,area:30,cur:10000,post:12000}); }
@@ -829,7 +950,8 @@ function syncFields(){
   const off={exitCap:+state.saleMode===1, saleBasis:+state.saleMode===1, salePriceIn:+state.saleMode!==1,
     corpRate:+state.taxMode!==0, indRate:+state.taxMode!==1,
     bldgRatio:+state.taxMode===2, bldgLife:+state.taxMode===2, capexLife:+state.taxMode===2,
-    delayCost:+state.cDelay<=0, price:+state.priceMode===1, priceTsubo:+state.priceMode!==1};
+    delayCost:+state.cDelay<=0, price:+state.priceMode===1, priceTsubo:+state.priceMode!==1,
+    evictLoan:!(+state.evictMo>0), evictTax:!(+state.evictMo>0)};
   Object.entries(off).forEach(([k,o])=>{ $('w-'+k).classList.toggle('off',o); $('i-'+k).disabled=o; });
   const used=new Set(curUnits().map(u=>u.use));
   ['office','resi','retail'].forEach(k=>{ ['ur-','pr-'].forEach(pf=>{ const el=$(pf+k); if(el) el.classList.toggle('hide',!used.has(k)); }); });
@@ -882,8 +1004,18 @@ function updateConv(){
     cv.textContent=!isFinite(v)?'':k==='t'?`＝ ${(v/0.3025).toFixed(1)}㎡`:k==='p'?`＝ ${Math.round(v*0.3025).toLocaleString('ja-JP')}円/㎡`:`＝ ${(v*0.3025).toFixed(1)}万円/㎡`;
   });
 }
+function updateLinked(r){
+  LINKED.forEach(k=>{ const tag=$('tag-'+k), btn=$('ra-'+k), inp=$('i-'+k); if(!tag) return;
+    const man=!!state.manual[k], est=!man&&k==='propTax'&&r.auto.propTaxEst, estPost=!man&&k==='propTaxPost'&&!state.manual.propTax&&r.auto.propTaxEst;
+    tag.textContent=man?'手動':(est||estPost)?'推定値':'自動'; tag.className='lk-tag'+(man?' man':(est||estPost)?' est':'');
+    btn.classList.toggle('hide',!man);
+    if(!man&&inp&&document.activeElement!==inp) inp.value=+(+r.eff[k]).toFixed(k==='pmRate'||k==='res'?2:k==='occReno'?1:k==='bmTsubo'?0:1); });
+  const legacy=r.rentModel!=='new';
+  r.useKeys.forEach(k=>{ const el=$('avg-'+k), G=r.grp[k]; if(!el) return;
+    el.innerHTML=legacy?'旧方式：残る割合・値上げ率は使われません':`改修後の平均単価<br><b>${Math.round(G.avgPostP).toLocaleString('ja-JP')}円/坪</b>（残る面積 ${pct(G.stay,0)}）`; });
+}
 function renderInputSums(r){
-  syncFields(); drawSection(); updateRefs(r);
+  syncFields(); drawSection(); updateRefs(r); updateLinked(r);
   const pr=r.p.price;
   const sp=syncPrice(state); state.price=sp.price; state.priceTsubo=sp.priceTsubo;  // 内部は丸めない
   const pin=+state.priceMode===1?$('i-price'):$('i-priceTsubo');                    // 入力していない側の表示だけ丸める
@@ -915,7 +1047,11 @@ function renderInputSums(r){
     <div><span>賃料アップ率</span><b>${r.gpr0>0?(r.gprPost>=r.gpr0?'+':'')+((r.gprPost/r.gpr0-1)*100).toFixed(1)+'%':'—'}</b></div>`;
   const stabM=r.C+r.L;
   $('sched').innerHTML=(r.D>0?`竣工 ${r.C}か月目（予定 ${r.Cplan}か月目から${r.D}か月遅れ）・安定稼働 ${stabM}か月目`:`竣工 ${r.C}か月目・安定稼働 ${stabM}か月目`)
-    +(r.gfaT>0?`<br>改修費 延床あたり ${(r.capexAll/r.gfaT).toFixed(1)}万円/坪（${(r.capexAll/r.gfaM2).toFixed(1)}万円/㎡）`:'');
+    +(r.gfaT>0?`<br>改修費 延床あたり ${(r.capexAll/r.gfaT).toFixed(1)}万円/坪（${(r.capexAll/r.gfaM2).toFixed(1)}万円/㎡）`:'')
+    +(r.evictTotal>0?`<br>立退料 ${yen(r.evictTotal)}（1か月目に支払い・${+state.evictLoan===1?'改修費と同じ割合で融資':'自己資金'}・${['支払った年の経費','取得価額に含める','譲渡費用'][+state.evictTax||0]}）`:'');
+  // 指値の上限（目標IRRに届く物件価格）
+  const bid=r.bid, el=$('bidInfo'), basisL=+state.bidBasis===1?'税引前IRR':'税引後IRR';
+  if(el) el.innerHTML=`<div class="bid-row"><span>指値の上限（${basisL} ${pct(r.p.target)}）</span><b>${bid.status==='ok'?yen(bid.price):bid.status==='unreachable'?'目標に届きません':'計算できません'}${bid.status==='ok'&&r.gfaT>0?`<small>延床 ${(bid.price/r.gfaT).toFixed(1)}万円/坪・現在の価格より ${(bid.price/r.p.price*100-100>=0?'+':'')+(bid.price/r.p.price*100-100).toFixed(1)}%</small>`:bid.status==='unreachable'?'<small>物件価格を現在の10%まで下げても目標に届きません</small>':''}</b></div>`;
 }
 function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){} }
 
@@ -931,16 +1067,20 @@ function render(){
     ['必要エクイティ',yen(r.peakEq),r.minDSCR?`安定期最低DSCR（NCF）${r.minDSCR.toFixed(2)}`:'DSCR —']
   ];
   $('metrics').innerHTML=met.map(([k,v,s,lead])=>`<div class="m${lead?' lead':''}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+  r.bid=maxBid(state,state.target/100,+state.bidBasis===1?1:0);
   renderNotes(r); renderInputSums(r); drawRent(r);
-  drawResult(r); drawStack(r); drawDB(r); drawSale(r); drawJ(r); drawBridge(r); drawNOI(r); drawSens(); drawCF(r);
+  drawResult(r); drawStack(r); drawDB(r); drawSale(r); drawJ(r); drawBridge(r); drawNOI(r); drawSens(r); drawBidSens(r); drawCF(r);
   firstRender=false;
 }
 
 function renderNotes(r){
-  const p=r.p, notes=[];
-  if(r.atIRR===null) notes.push(['warn','税引後のエクイティCFでIRRを計算できません。売却手取りが借入残高を下回っていないか確認してください。']);
-  else if(r.atIRR>=p.target) notes.push(['ok',`税引後IRR ${pct(r.atIRR)} は目標 ${pct(p.target)} を上回っています。`]);
-  else notes.push(['warn',`税引後IRR ${pct(r.atIRR)} は目標 ${pct(p.target)} に届いていません。`]);
+  const p=r.p, notes=[], pre=+state.bidBasis===1, v=pre?r.lirr:r.atIRR, lab=pre?'税引前IRR':'税引後IRR';
+  if(v===null) notes.push(['warn',`${lab}を計算できません。売却手取りが借入残高を下回っていないか確認してください。`]);
+  else if(v>=p.target) notes.push(['ok',`${lab} ${pct(v)} は目標 ${pct(p.target)} を上回っています。`]);
+  else notes.push(['warn',`${lab} ${pct(v)} は目標 ${pct(p.target)} に届いていません。`]);
+  if(r.bid.status==='ok') notes.push(['info',`目標の${lab} ${pct(p.target)} に届く物件価格（指値の上限）は ${yen(r.bid.price)} で、現在の価格の ${(r.bid.price/p.price*100).toFixed(1)}% です。`]);
+  else notes.push(['warn',r.bid.status==='unreachable'?`物件価格を現在の10%まで下げても、目標の${lab}に届きません。`:'指値の上限を計算できません。']);
+  if(r.rentModel!=='new') notes.push(['warn','賃料は旧方式（入居中のテナントも改修後は新規テナントの単価になる前提）で計算しています。「用途別の稼働条件」で新方式に切り替えられます。']);
   const stressState=r.saleMode===1?{...state,salePriceIn:state.salePriceIn*0.95}:{...state,exitCap:state.exitCap+0.25};
   const st=model(stressState), sp=Math.round(r.spread*10000);
   const stTxt=r.saleMode===1?'売却価格が5%下がると':'出口キャップが0.25%悪化すると';
@@ -1104,7 +1244,8 @@ function drawSale(r){
     rows.push(['sub','土地',r.landBasis,`取得価額（諸費用${r.amAcqFee>0?'・AM取得報酬':''}込み）の${pct(1-p.bldgRatio,0)}`]);
     rows.push(['sub','建物（未償却残高）',r.bookB,`償却${Math.round(p.bldgLife)}年・定額法`]);
     rows.push(['sub','改修費・Capex（未償却残高）',r.bookC,`償却${Math.round(p.capexLife)}年・定額法`]);
-    rows.push(['tot','譲渡益',r.gain,r.amSaleFee>0?'売却手取り − AM売却報酬 − 簿価':'売却手取り − 簿価']);
+    if(+state.evictTax===2&&r.evictTotal>0) rows.push(['sub','立退料（譲渡費用）',-r.evictTotal,'税計算上だけ差し引く（支払いは改修時）']);
+    rows.push(['tot','譲渡益',r.gain,`売却手取り${r.amSaleFee>0?' − AM売却報酬':''}${+state.evictTax===2&&r.evictTotal>0?' − 立退料':''} − 簿価`]);
     rows.push(['','譲渡税等',-r.taxSale,r.gainLabel]);
   }
   rows.push(['','借入完済',-r.payoff,'売却時点の借入残高']);
@@ -1207,7 +1348,7 @@ function drawRent(r){
   const rows=r.units, tot={n:0,area:0,cur:0,post:0};
   const ar=a=>`${a.toFixed(1)}坪<small>${(a/0.3025).toFixed(1)}㎡</small>`;
   const pp=v=>`${Math.round(v).toLocaleString('ja-JP')}円/坪<small>${Math.round(v*0.3025).toLocaleString('ja-JP')}円/㎡</small>`;
-  let h=`<thead><tr><th>区画タイプ</th><th>用途</th><th>区画数</th><th>専有面積</th><th>合計面積</th><th>現況単価</th><th>改修後単価</th><th>月額（現況）</th><th>月額（改修後）</th><th>アップ率</th></tr></thead><tbody>`;
+  let h=`<thead><tr><th>区画タイプ</th><th>用途</th><th>区画数</th><th>専有面積</th><th>合計面積</th><th>現況単価</th><th>新規単価</th><th>月額（現況）</th><th>月額（新規単価・満室）</th><th>アップ率</th></tr></thead><tbody>`;
   rows.forEach(u=>{ tot.n+=u.n; tot.area+=u.n*u.area; tot.cur+=u.cur; tot.post+=u.post;
     const up=u.cur>0?u.post/u.cur-1:null;
     h+=`<tr><td>${u.name}</td><td>${USE_NAME[u.use]}</td><td>${u.n}</td><td>${ar(u.area)}</td><td>${ar(u.n*u.area)}</td><td>${pp(u.curP)}</td><td>${pp(u.postP)}</td><td>${man(u.cur)}万円</td><td class="x">${man(u.post)}万円</td><td class="${up>0?'up':'flat'}">${up===null?'—':(up>=0?'+':'')+(up*100).toFixed(1)+'%'}</td></tr>`; });
@@ -1220,28 +1361,45 @@ function drawRent(r){
      +(q.above!==null?`　／　地上レンタブル比 <b>${pct(q.above)}</b>（地上専有 ${gm(q.nraAbove)} ÷ 地上延床 ${gm(q.gfaAbove)}）`:'　／　地上レンタブル比は区画手入力では表示しません');
 }
 
-function drawSens(){
+const irrOf=r=>+state.bidBasis===1?r.lirr:r.atIRR, irrLab=()=>+state.bidBasis===1?'税引前IRR':'税引後IRR';
+function drawSens(r){
+  r=r||model(state);
   const priceMode=+state.saleMode===1, tgt=state.target/100, axis=+state.sensAxis;
+  $('sensTitle').textContent=`感度分析：${irrLab()}`;
   const rowsV=priceMode?[0.9,0.95,1,1.05,1.1]:[-0.5,-0.25,0,0.25,0.5];
   const cols=axis===1?[...new Set([0,3,6,9,12,Math.round(+state.cDelay)])].sort((a,b)=>a-b):[-10,-5,0,5,10];
   const colLab=c=>axis===1?(c===0?'延長なし':`+${c}か月`):(c===0?'設定値':(c>0?'+':'')+c+'%');
-  $('sensSub').textContent=`${priceMode?'売却価格':'出口キャップレート'} × ${axis===1?'工期延長（追加費用は設定値の月割りで按分）':'改修後坪単価の増減'}。目標IRR以上を緑、未満を赤で表示。`;
-  let h=`<thead><tr><th class="corner">${priceMode?'売却価格':'出口キャップ'} ＼ ${axis===1?'工期延長':'改修後賃料'}</th>${cols.map(c=>`<th>${colLab(c)}</th>`).join('')}</tr></thead><tbody>`;
+  $('sensSub').textContent=`${priceMode?'売却価格':'出口キャップレート'} × ${axis===1?'工期延長（追加費用は設定値の月割りで按分）':'新規テナント単価の増減'}。目標IRR以上を緑、未満を赤で表示。`;
+  let h=`<thead><tr><th class="corner">${priceMode?'売却価格':'出口キャップ'} ＼ ${axis===1?'工期延長':'新規賃料'}</th>${cols.map(c=>`<th>${colLab(c)}</th>`).join('')}</tr></thead><tbody>`;
   const perM=+state.cDelay>0?state.delayCost/state.cDelay:0;
   rowsV.forEach(rv=>{
     const cap=+(state.exitCap+rv).toFixed(2), price=Math.round(state.salePriceIn*rv);
-    h+=`<tr><th>${priceMode?yen(price):cap.toFixed(2)+'%'}</th>`;
+    h+=`<tr><th>${priceMode?`${yen(price)}<small>NOI利回り ${pct(price>0?r.fwdNOI/price:null,2)}</small>`:cap.toFixed(2)+'%'}</th>`;
     cols.forEach(c=>{
       const ok=priceMode||cap>0;
       let st={...state}; if(priceMode) st.salePriceIn=price; else st.exitCap=cap;
       if(axis===1){ st.cDelay=c; st.delayCost=perM*c; } else st.rentAdj=c;
-      const v=ok?model(st).atIRR:null;
+      const v=ok?irrOf(model(st)):null;
       const base=(priceMode?rv===1:rv===0)&&(axis===1?c===+state.cDelay:c===0);
       h+=`<td class="${v!==null&&v>=tgt?'hi':'lo'} ${base?'base':''}">${pct(v)}</td>`;
     });
     h+='</tr>';
   });
   $('sens').innerHTML=h+'</tbody>';
+}
+// 指値の検討：取得価格 × 出口キャップ（売却価格を指定しているときは × 売却価格）
+function drawBidSens(r){
+  const priceMode=+state.saleMode===1, tgt=state.target/100, P0=r.p.price;
+  const rowsV=[0.9,0.95,1,1.05,1.1], cols=priceMode?[0.9,0.95,1,1.05,1.1]:[-0.5,-0.25,0,0.25,0.5];
+  $('bidSensSub').textContent=`行は取得価格（現在の価格の±10%）、列は${priceMode?'売却価格（±10%）':'出口キャップレート'}。値は${irrLab()}。目標以上を緑、未満を赤で表示。${r.bid.status==='ok'?`指値の上限は ${yen(r.bid.price)}。`:''}`;
+  let h=`<thead><tr><th class="corner">取得価格 ＼ ${priceMode?'売却価格':'出口キャップ'}</th>${cols.map(c=>`<th>${priceMode?yen(state.salePriceIn*c):(+(state.exitCap+c).toFixed(2)).toFixed(2)+'%'}</th>`).join('')}</tr></thead><tbody>`;
+  rowsV.forEach(rv=>{ const P=P0*rv;
+    h+=`<tr><th>${yen(P)}<small>${r.gfaT>0?(P/r.gfaT).toFixed(1)+'万円/坪':''}</small></th>`;
+    cols.forEach(c=>{ const st={...state,priceMode:0,price:P}; if(priceMode) st.salePriceIn=state.salePriceIn*c; else st.exitCap=+(state.exitCap+c).toFixed(2);
+      const ok=priceMode||st.exitCap>0, v=ok?irrOf(model(st)):null, base=rv===1&&(priceMode?c===1:c===0);
+      h+=`<td class="${v!==null&&v>=tgt?'hi':'lo'} ${base?'base':''}">${pct(v)}</td>`; });
+    h+='</tr>'; });
+  $('bidSens').innerHTML=h+'</tbody>';
 }
 
 function drawCF(r){
@@ -1266,6 +1424,7 @@ function drawCF(r){
   b+=row('Capex（収入比）',[null,...ys.map(y=>-y.reserve)],'sub');
   b+=row('NCF',[null,...ys.map(y=>y.ncf)],'em');
   b+=row('改修費',[r.C===0?-r.capexAll:0,...ys.map(y=>-y.capex)]);
+  b+=row('立退料',[null,...ys.map(y=>-y.evict)]);
   b+=row('取得・諸費用',[-r.acqTotal,...ys.map(()=>0)]);
   b+=row('アンレバードCF',r.unCF,'em');
   b+=sec('ファンド費用');
@@ -1304,7 +1463,7 @@ $('propName').addEventListener('input',e=>{ state.propName=e.target.value; save(
 window.addEventListener('beforeprint',stampPrintDate);
 $('reset').addEventListener('click',()=>{
   state={...DEFAULTS}; save();
-  state.units=clone(DEFAULT_UNITS); state.uses=clone(USE_DEF); state.ptype=0; state.rentMode=0; state.bld=clone(BLD_DEF); state.propName=''; save();
+  state.units=clone(DEFAULT_UNITS); state.uses=clone(USE_DEF); state.ptype=0; state.rentMode=0; state.bld=clone(BLD_DEF); state.propName=''; state.manual={}; state.rentModel='new'; save();
   $('propName').value=''; syncName();
   buildInputs(); $('sensAxis').value='0'; render();
 });
