@@ -311,7 +311,9 @@ for (const [key, src] of [['default', v6Default], ['custom', v6Custom]]) {
   });
 }
 
-test('移し替え：すでに v7 形式のデータは変更しない', () => {
+test('移し替え：v7 形式のデータの建物設定と物件名は変更しない（運営費の移し替えは opex.test.js で確認）', () => {
   const v7 = { ...clone(v6Default), propName: 'テストビル', bld: { ...clone(E.BLD_DEF), areaMode: 'auto', rr: 72, detailInit: false } };
-  assert.deepEqual(plain(E.migrate(clone(v7))), v7);
+  const m = plain(E.migrate(clone(v7)));
+  assert.deepEqual(m.bld, v7.bld);
+  assert.equal(m.propName, 'テストビル');
 });
