@@ -157,7 +157,18 @@ td.neg{color:var(--neg)}
 .eqn .t.final .v.neg{color:var(--neg)}
 .eqn .t.final .s{font-size:12.5px;color:var(--muted)}
 .rbar{display:flex;height:34px;border-radius:5px;overflow:hidden;background:var(--surface-2);font-size:12.5px;font-weight:500}
-.rbar span{display:flex;align-items:center;padding:0 10px;white-space:nowrap;overflow:hidden}
+.rbar span{display:flex;align-items:center;padding:0 10px;white-space:nowrap;overflow:hidden;min-width:0}
+.rbar span.narrow{padding:0}
+.rbar span.narrow em{visibility:hidden}
+.rbar em{font-style:normal}
+.rbar-wrap{position:relative}
+.rbar-out{position:relative;height:0}
+.rbar-out .ol{position:absolute;white-space:nowrap;font-size:12px;font-weight:500;color:var(--ink);display:flex;align-items:center;gap:5px;line-height:16px}
+.rbar-out .ol i{display:inline-block;width:9px;height:9px;border-radius:2px;flex:none}
+.rbar-out .ll{position:absolute;top:0;width:0;border-left:1px solid var(--muted)}
+.rbar-out .lk{position:absolute;top:0;overflow:visible}
+.rbar-out .lk line{stroke:var(--muted);stroke-width:1}
+.rbar-measure{position:absolute;visibility:hidden;white-space:nowrap;font-size:12.5px;font-weight:500;left:-9999px;top:0}
 .rbar .base{background:var(--bar);color:#fff}
 .rbar .gain{background:var(--accent);color:#1e2124}
 .rbar .loss{background:var(--neg-soft);color:var(--neg)}
@@ -876,15 +887,57 @@ function drawResult(r){
     <div class="t final"><span class="k">税引後純利益</span><span class="v ${net<0?'neg':''}">${sg(net)}</span>
       <span class="s">エクイティ倍率 ${r.atEM?r.atEM.toFixed(2)+'倍':'—'}　税引後IRR ${pct(r.atIRR)}　保有${r.N}年</span></div></div>`;
   const ret=op+sale, max=Math.max(inv,ret,1);
-  if(net>=0){
-    h+=`<div class="rbar" role="img" aria-label="回収総額の内訳"><span class="base" style="width:${inv/max*100}%">元本 ${yen(inv)}</span>${taxed&&tax>0?`<span class="tax" style="width:${tax/max*100}%">税金 ${yen(tax)}</span>`:''}<span class="gain" style="width:${net/max*100}%">${taxed?'税引後利益':'利益'} ${yen(net)}</span></div>`;
-  } else {
-    const back=Math.max(0,ret-tax);
-    h+=`<div class="rbar" role="img" aria-label="回収総額の内訳"><span class="base" style="width:${back/max*100}%">回収 ${yen(back)}</span><span class="loss" style="width:${(inv-back)/max*100}%">損失 ${yen(inv-back)}</span></div>`;
-  }
+  const back=Math.max(0,ret-tax);
+  const segs=net>=0
+    ? [['base',inv,`元本 ${yen(inv)}`],...(taxed&&tax>0?[['tax',tax,`税金 ${yen(tax)}`]]:[]),['gain',net,`${taxed?'税引後利益':'利益'} ${yen(net)}`]]
+    : [['base',back,`回収 ${yen(back)}`],['loss',inv-back,`損失 ${yen(inv-back)}`]];
+  const vis=segs.filter(([,v])=>v>0);
+  h+=`<div class="rbar-wrap"><div class="rbar" role="img" aria-label="回収総額の内訳：${vis.map(x=>x[2]).join('、')}">${vis.map(([c,v,l])=>`<span class="${c}" style="width:${v/max*100}%" data-l="${l}"><em>${l}</em></span>`).join('')}</div><div class="rbar-out" aria-hidden="true"></div></div>`;
   h+=`<div class="rcap">回収総額 ${yen(ret)}（税引前）のうち、売却が${ret>0?Math.round(sale/ret*100):0}%、保有中の運営CFが${ret>0?Math.round(op/ret*100):0}%。${taxed&&pre>0?`税負担率は税引前利益の${Math.round(tax/pre*100)}%。`:''}</div>`;
   $('result').innerHTML=h;
+  fitBarLabels();
 }
+// 帯の区分に収まらないラベルを、帯の下の1段に引き出し線つきで出す。
+// ラベルは区分と同じ左右の順に並べ、重ならないよう詰める（線どうし・線とラベルが交差しない）。
+// 印刷時に再計算されなくても崩れないよう、画面の帯の幅 W と A4 印刷の帯の幅 PRINT_BAR_W の両方で配置を求め、
+// 位置を「幅に比例する部分＋固定px」（calc）で書く。重なり・はみ出しの条件は幅について一次式なので、2つの幅の間でも保たれる
+const PRINT_BAR_W=670, OUT_TOP=12, OUT_GAP=10;
+function packOut(outs,W){
+  const L=outs.map(o=>o.c*W-o.lw/2);
+  for(let k=0;k<L.length;k++) L[k]=Math.max(L[k],k?L[k-1]+outs[k-1].lw+OUT_GAP:0);
+  for(let k=L.length-1;k>=0;k--) L[k]=Math.min(L[k],k<L.length-1?L[k+1]-OUT_GAP-outs[k].lw:W-outs[k].lw);
+  for(let k=0;k<L.length;k++) L[k]=Math.max(L[k],k?L[k-1]+outs[k-1].lw+OUT_GAP:0);
+  return L;
+}
+function fitBarLabels(){
+  const wrap=document.querySelector('#result .rbar-wrap'); if(!wrap) return;
+  const bar=wrap.querySelector('.rbar'), out=wrap.querySelector('.rbar-out'), W=bar.clientWidth;
+  const widths=[W,PRINT_BAR_W].filter(w=>w>0);
+  const ms=document.createElement('span'); ms.className='rbar-measure'; document.body.appendChild(ms);
+  const tw=t=>{ ms.textContent=t; return ms.getBoundingClientRect().width; };
+  let x=0; const outs=[];
+  [...bar.children].forEach(sp=>{
+    const p=parseFloat(sp.style.width)/100, c=x+p/2; x+=p;
+    const fits=widths.every(w=>p*w>=tw(sp.dataset.l)+20);        // 左右の余白 10px ずつ
+    sp.classList.toggle('narrow',!fits);
+    if(!fits) outs.push({c,l:sp.dataset.l,cls:sp.className.replace('narrow','').trim(),lw:tw(sp.dataset.l)+14}); // 色見本と間隔の分
+  });
+  ms.remove();
+  const W1=W||PRINT_BAR_W, W2=PRINT_BAR_W, L1=packOut(outs,W1), L2=packOut(outs,W2);
+  const lin=(v1,v2)=>{ const a=Math.abs(W1-W2)<1?0:(v1-v2)/(W1-W2); return {a,b:v1-a*W1}; };   // v(W) ＝ a×W ＋ b
+  const css=({a,b})=>`calc(${(a*100).toFixed(4)}% + ${b.toFixed(2)}px)`;
+  const col={base:'var(--bar)',tax:'var(--neg)',gain:'var(--accent)',loss:'var(--neg)'};
+  out.innerHTML=outs.map((o,k)=>{
+    const left=lin(L1[k],L2[k]), x1={a:o.c,b:0}, x2={a:left.a,b:left.b+o.lw/2};       // 区分の中心 → ラベル上端の中央
+    const dx={a:x2.a-x1.a,b:x2.b-x1.b}, d1=dx.a*W1+dx.b, toRight=d1>=0;
+    const lw=Math.abs(d1)<1&&Math.abs(dx.a*W2+dx.b)<1
+      ? `<span class="ll" style="left:${css(x1)};height:${OUT_TOP}px"></span>`
+      : `<svg class="lk" style="left:${css(toRight?x1:x2)};width:${css(toRight?dx:{a:-dx.a,b:-dx.b})};height:${OUT_TOP}px" viewBox="0 0 1 1" preserveAspectRatio="none"><line x1="${toRight?0:1}" y1="0" x2="${toRight?1:0}" y2="1" vector-effect="non-scaling-stroke"/></svg>`;
+    return lw+`<span class="ol" style="top:${OUT_TOP}px;left:${css(left)}"><i style="background:${col[o.cls]}"></i>${o.l}</span>`;
+  }).join('');
+  out.style.height=outs.length?`${OUT_TOP+20}px`:'0px';
+}
+window.addEventListener('resize',fitBarLabels);
 
 function drawStack(r){
   const W=300,H=330,pad={t:44,b:42}, ih=H-pad.t-pad.b, bw=86, xs=[34,180];
