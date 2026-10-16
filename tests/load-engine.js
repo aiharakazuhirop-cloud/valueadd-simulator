@@ -5,7 +5,7 @@ const path = require('path');
 const vm = require('vm');
 
 const NAMES = ['model', 'coreModel', 'floorPlan', 'genUnits', 'autoAreas', 'effAreas', 'setAreaMode',
-  'overwriteDetail', 'migrate', 'annuity', 'irr', 'BLD_DEF', 'USE_DEF', 'RR_DEF'];
+  'overwriteDetail', 'migrate', 'syncPrice', 'annuity', 'irr', 'BLD_DEF', 'USE_DEF', 'RR_DEF'];
 
 function loadEngine() {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');

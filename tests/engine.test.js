@@ -213,6 +213,68 @@ test('レンタブル比：区画手入力モードでは地上レンタブル�
   assert.equal(r.rr.above, null);
 });
 
+// ---------- 物件価格と延床坪単価（内部で丸めない） ----------
+// 画面の「物件価格の入力方法」の切り替えを、syncPrice の結果を state に書き戻す形で再現する
+function switchPriceMode(st, mode) {
+  const s0 = E.syncPrice(st);                       // 切り替え前に、入力していない側を同期
+  const st1 = { ...st, price: s0.price, priceTsubo: s0.priceTsubo, priceMode: mode };
+  const s1 = E.syncPrice(st1);                      // 切り替え後の再描画でも同期される
+  return { ...st1, price: s1.price, priceTsubo: s1.priceTsubo };
+}
+
+test('価格：総額52,000万円 → 坪単価入力 → 総額入力 と往復しても1円も変わらない（延床1,331㎡）', () => {
+  // 延床 1,331㎡ ＝ 402.6275坪。延床坪単価 ＝ 52,000 ÷ 402.6275 ＝ 129.15164…万円/坪（表示は 129.2）
+  // 丸めていた旧方式では 129.2 × 402.6275 ＝ 52,019.47万円 にずれていた
+  let st = autoState({}, { gfaM2: 1331, priceMode: 0, price: 52000 });
+  st = switchPriceMode(st, 1);
+  near(st.priceTsubo, 52000 / 402.6275, 1e-12, '延床坪単価（内部値）');
+  near(E.model(st).p.price, 52000, 1e-8, '坪単価入力時の物件価格');
+  st = switchPriceMode(st, 0);
+  near(st.price, 52000, 1e-8, '総額入力に戻した物件価格（1円 ＝ 0.0001万円 より十分小さい誤差）');
+  near(E.model(st).p.price, 52000, 1e-8);
+});
+
+test('価格：往復を10回くり返しても物件価格・延床坪単価がずれない', () => {
+  let st = autoState({}, { gfaM2: 1210, priceMode: 0, price: 50123 });
+  for (let i = 0; i < 10; i++) { st = switchPriceMode(st, 1); st = switchPriceMode(st, 0); }
+  near(st.price, 50123, 1e-8, '物件価格');
+  near(st.priceTsubo, 50123 / 366.025, 1e-12, '延床坪単価');
+});
+
+test('価格：坪単価入力 136.6万円/坪 → 総額入力 → 坪単価入力 で坪単価が変わらない', () => {
+  // 366.025坪 × 136.6 ＝ 49,999.015万円（旧方式は 49,999 に丸めていた）
+  let st = autoState({}, { gfaM2: 1210, priceMode: 1, priceTsubo: 136.6 });
+  st = switchPriceMode(st, 0);
+  near(st.price, 49999.015, 1e-8, '総額に切り替えたときの物件価格');
+  st = switchPriceMode(st, 1);
+  near(st.priceTsubo, 136.6, 1e-12, '延床坪単価');
+});
+
+test('価格：坪単価入力のとき延床を変えると価格が連動する（延床1,210→1,331㎡）', () => {
+  let st = autoState({}, { gfaM2: 1210, priceMode: 1, priceTsubo: 136.6 });
+  st = { ...st, gfaM2: 1331 };
+  near(E.syncPrice(st).price, 402.6275 * 136.6, 1e-8);
+});
+
+test('価格：延床が0のときは延床坪単価を変えない（0で割らない）', () => {
+  const st = autoState({}, { gfaM2: 0, priceMode: 0, price: 50000, priceTsubo: 137 });
+  const s = E.syncPrice(st);
+  assert.equal(s.price, 50000);
+  assert.equal(s.priceTsubo, 137);
+});
+
+for (const [key, src] of [['default', v6Default], ['custom', v6Custom]]) {
+  test(`価格：保存データ（v6 ${key === 'default' ? '初期値・総額入力' : '独自入力・坪単価入力'}）を読み込んで同期しても結果が変わらない`, () => {
+    const st = E.migrate(clone(src));
+    st.bld = { ...clone(E.BLD_DEF), ...st.bld };
+    const s = E.syncPrice(st);
+    const r = E.model({ ...st, price: s.price, priceTsubo: s.priceTsubo }), g = v6Results[key];
+    near(r.p.price, g.price, 1e-8, '物件価格');
+    near(r.atIRR, g.atIRR, 1e-12, '税引後IRR');
+    near(r.atProfit, g.atProfit, 1e-6, '税引後純利益');
+  });
+}
+
 // ---------- 保存データの移し替え（v6 → v7） ----------
 test('移し替え：v6 のデータは詳細モードになり、物件名は空欄', () => {
   const m = E.migrate(clone(v6Default));

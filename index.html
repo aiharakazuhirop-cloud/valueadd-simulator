@@ -218,6 +218,13 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
   .chart-box{max-width:none}
   .eqn .t .v{font-size:17px}
   .eqn .t.final .v{font-size:24px}
+  .card h2{font-size:13px;margin-bottom:2px}
+  .card .sub{margin-bottom:6px;font-size:10.5px}
+  .ctab td,.ctab th{padding:3px 8px}
+  .ctab td small{font-size:9.5px;line-height:1.25}
+  .result{gap:8px;padding-bottom:12px;margin-bottom:12px}
+  .rcap{font-size:10.5px}
+  input:focus-visible,select:focus-visible,.btn:focus-visible{outline:none}
   .card{padding:12px 14px}
   .scroll{overflow:visible}
   table{font-size:10.5px}
@@ -371,6 +378,12 @@ function genUnits(st){
   if(of>0&&A>0) out.push({name:`オフィス ${fl(2,1+of)}`,use:'office',n:of,area:A,cur:pr.office[0],post:pr.office[1]});
   if(rf>0&&A>0){ const tot=rf*A, n=Math.max(1,Math.round(tot/ru)); out.push({name:`住宅 ${fl(2+of,F)}`,use:'resi',n,area:tot/n,cur:pr.resi[0],post:pr.resi[1]}); }
   return out;
+}
+// 物件価格と延床坪単価の組を、入力している側に合わせて返す。どちらも丸めない（表示側で丸める）
+function syncPrice(st){
+  const gT=Math.max(0,+st.gfaM2||0)*0.3025, price=+st.price||0, tsubo=+st.priceTsubo||0;
+  if(+st.priceMode===1) return {price:gT*tsubo,priceTsubo:tsubo};
+  return {price,priceTsubo:gT>0?price/gT:tsubo};
 }
 function model(raw){
   const st={...raw}; if(+raw.rentMode!==1) st.units=genUnits(raw);
@@ -582,9 +595,12 @@ const man=v=>{const r=Math.round(v);return (r===0?0:r).toLocaleString('ja-JP');}
 const pct=(v,d=1)=>v===null||!isFinite(v)?'—':(v*100).toFixed(d)+'%';
 const sg=v=>(v>=0?'+':'−')+yen(Math.abs(v));
 
+// 入力欄に出す値。内部値は丸めずに持ち、表示だけ丸める項目
+const IN_DIGITS={price:0,priceTsubo:1};
+const fmtIn=(k,v)=>k in IN_DIGITS&&isFinite(+v)?+(+v).toFixed(IN_DIGITS[k]):v;
 const fieldHTML=([k,l,u,,st,opts,cv])=>opts
   ? `<div class="f wide" id="w-${k}"><label for="i-${k}">${l}</label><div class="in"><select id="i-${k}" data-k="${k}">${opts.map((o,i)=>`<option value="${i}"${+state[k]===i?' selected':''}>${o}</option>`).join('')}</select></div></div>`
-  : `<div class="f" id="w-${k}"><label for="i-${k}">${l}</label><div class="in"><input id="i-${k}" data-k="${k}" ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${state[k]}"><span class="u">${u}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
+  : `<div class="f" id="w-${k}"><label for="i-${k}">${l}</label><div class="in"><input id="i-${k}" data-k="${k}" ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${fmtIn(k,state[k])}"><span class="u">${u}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
 const numF=(id,attr,l,un,val,st,cv)=>`<div class="f" id="w-${id}"><label for="${id}">${l}</label><div class="in"><input id="${id}" ${attr} ${cv?`data-cvk="${cv}"`:''} type="number" inputmode="decimal" step="${st}" value="${val}"><span class="u">${un}</span></div>${cv?'<div class="cv"></div>':''}</div>`;
 const selOpts=(arr,cur)=>arr.map(([v,l])=>`<option value="${v}"${String(cur)===String(v)?' selected':''}>${l}</option>`).join('');
 function curUnits(){ return +state.rentMode===1?state.units:genUnits(state); }
@@ -763,8 +779,9 @@ function updateConv(){
 function renderInputSums(r){
   syncFields(); drawSection();
   const pr=r.p.price;
-  if(+state.priceMode===1){ state.price=Math.round(pr); $('i-price').value=state.price; }
-  else if(r.gfaT>0){ state.priceTsubo=+(pr/r.gfaT).toFixed(1); $('i-priceTsubo').value=state.priceTsubo; }
+  const sp=syncPrice(state); state.price=sp.price; state.priceTsubo=sp.priceTsubo;  // 内部は丸めない
+  const pin=+state.priceMode===1?$('i-price'):$('i-priceTsubo');                    // 入力していない側の表示だけ丸める
+  if(document.activeElement!==pin) pin.value=fmtIn(+state.priceMode===1?'price':'priceTsubo',+state.priceMode===1?sp.price:sp.priceTsubo);
   save();
   if(+state.rentMode!==1&&state.bld.areaMode!=='detail'){
     const a=autoAreas(state), v=+a.per.toFixed(2);
