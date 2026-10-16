@@ -176,14 +176,68 @@ svg .big{font-size:20px;font-weight:700;fill:var(--ink)}
 svg .gold{fill:var(--accent)}
 svg .lbl{fill:var(--ink);font-size:12.5px}
 footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
+.pname{margin:8px 0 2px;max-width:30em}
+.pname input{width:100%;font:inherit;font-size:16px;font-weight:700;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.pname input::placeholder{color:var(--muted);font-weight:400}
+.pname input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.f.calc .in{background:transparent;border-style:dashed}
+.f.calc input{color:var(--ink);-webkit-text-fill-color:var(--ink);opacity:1}
+.auto-formula{grid-column:1/-1;font-size:12px;color:var(--muted);padding:6px 10px;border-radius:6px;background:var(--surface-2)}
+.auto-formula b{color:var(--ink);font-weight:700}
+.btn.wide{grid-column:1/-1;width:100%}
+.print-head{display:none}
+@page{size:A4;margin:12mm}
+@media print{
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
+    color-scheme:light;
+    --bg:#fff; --surface:#fff; --surface-2:#f2f3f4; --ink:#1f2226; --muted:#5b6168; --line:#cfd2d6;
+    --accent:#94701f; --accent-soft:rgba(148,112,31,.16); --pos:#2c7556; --pos-soft:rgba(44,117,86,.14);
+    --neg:#b0453a; --neg-soft:rgba(176,69,58,.13); --bar:#7d8791;
+  }
+  html,body{background:#fff}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-size:11px}
+  .wrap{max-width:none;padding:0}
+  .print-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;border-bottom:2px solid var(--ink);padding-bottom:6px;margin-bottom:12px}
+  .print-head b{font-family:var(--serif);font-size:20px}
+  .print-head span{color:var(--muted);font-size:11px;white-space:nowrap}
+  header{display:none}
+  .layout{display:flex;flex-direction:column;gap:14px}
+  main{order:1;gap:12px}
+  aside{order:2;columns:2;column-gap:18px;padding:8px 12px;break-before:page}
+  aside::before{content:'前提条件';display:block;column-span:all;font-weight:700;font-size:14px;padding:4px 0 6px;border-bottom:1px solid var(--line)}
+  aside fieldset{break-inside:auto}
+  .f,.unit,.use-row,.ptab-r,.bsec,.rent-sum,.acq-info,.sched,.auto-formula{break-inside:avoid}
+  .card,.metrics,tr,svg{break-inside:avoid}
+  .metrics{grid-template-columns:repeat(6,1fr)}
+  .m{padding:8px 10px}
+  .m .v{font-size:18px}
+  .m.lead .v{font-size:20px}
+  .cmp{grid-template-columns:200px minmax(0,1fr);gap:16px}
+  .chart-box{max-width:none}
+  .eqn .t .v{font-size:17px}
+  .eqn .t.final .v{font-size:24px}
+  .card{padding:12px 14px}
+  .scroll{overflow:visible}
+  table{font-size:10.5px}
+  th:first-child,td:first-child{position:static}
+  .btn,.del,.sel{display:none!important}
+  .f input:disabled,.f select:disabled{color:var(--ink)}
+  .jc .draw-line{animation:none;stroke-dashoffset:0}
+  .jc .fade{animation:none;opacity:1}
+  footer{max-width:none}
+}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <div class="print-head" aria-hidden="true"><b id="printName"></b><span>Value-Add Return Simulator　<span id="printDate"></span></span></div>
   <header>
     <div>
       <h1>Value-Add Return Simulator</h1>
+      <div class="pname"><label class="vh" for="propName">物件名</label><input id="propName" type="text" maxlength="80" placeholder="物件名（例：〇〇ビル）" autocomplete="off"></div>
       <p>オフィス・住宅・複合のバリューアド案件を、取得・改修・リースアップ・売却まで月次で追い、税引後に手元へ残る利益まで計算します。金額は万円単位。</p>
     </div>
     <button class="btn" id="reset" type="button">初期値に戻す</button>
@@ -257,13 +311,16 @@ footer{color:var(--muted);font-size:12px;margin-top:28px;max-width:80ch}
 </div>
 
 <script>
+// @engine-begin
 /* ---------- model (pure) ---------- */
 const PCT=['acq','occNow','occReno','rg','eg','res','ltv','cltv','rate','exitCap','sale','disc','target','corpRate','indRate','bldgRatio'];
 const LT_RATE=0.20315, ST_RATE=0.3963;
 const USE_DEF={office:{stab:95,L:12,fr:3},resi:{stab:95,L:6,fr:0},retail:{stab:95,L:9,fr:2}};
 const USE_NAME={office:'オフィス',resi:'住宅',retail:'店舗'};
 
+const RR_DEF=[75,80,75];  // 想定レンタブル比の初期値（物件タイプ順：オフィス・住宅・複合、%）
 const BLD_DEF={floors:8,bFloors:0,bUse:'retail',bArea:25,bRate:70,typArea:35,f1use:'retail',f1Area:30,officeRatio:50,resiUnit:7.5,
+  areaMode:'auto',rr:75,detailInit:false,
   price:{office:[10000,12500],resi:[9000,11000],retail:[15000,15000]}};
 function floorPlan(st){
   const b=st.bld||BLD_DEF, F=Math.max(1,Math.round(+b.floors||1)), typ=F-1, pt=Math.round(+st.ptype||0);
@@ -272,12 +329,43 @@ function floorPlan(st){
   const B=Math.max(0,Math.min(10,Math.round(+b.bFloors||0)));
   return {F,typ,of,rf:typ-of,B};
 }
+// 自動：各階の専有面積 ＝ 延床面積 × 想定レンタブル比 ÷ 総階数（地上＋地下）。用途「なし」の階も延床・階数に含める
+function autoAreas(st){
+  const b=st.bld||BLD_DEF, {F,B}=floorPlan(st), gT=Math.max(0,+st.gfaM2||0)*0.3025;
+  const gross=gT/(F+B), per=gross*Math.max(0,+b.rr||0)/100;
+  return {F,B,gT,gross,per};
+}
+// 区画の作成に使う各階の専有面積（坪）。詳細モードは入力値、自動モードは autoAreas の値
+function effAreas(st){
+  const b=st.bld||BLD_DEF;
+  if(b.areaMode==='detail') return {typ:+b.typArea||0,f1:+b.f1Area||0,b:+b.bArea||0};
+  const {per}=autoAreas(st); return {typ:per,f1:per,b:per};
+}
+const r2=v=>Math.round(v*100)/100;
+// 自動の値で詳細の入力値を入れ直した bld を返す（元の st は変えない）
+function overwriteDetail(st){
+  const {per}=autoAreas(st), a=r2(per);
+  return {...st.bld,areaMode:'detail',detailInit:true,typArea:a,f1Area:a,bArea:a};
+}
+// 専有面積の決め方を切り替えた bld を返す。初めて詳細にするときだけ自動の値を引き継ぐ
+function setAreaMode(st,mode){
+  if(mode==='detail') return st.bld.detailInit?{...st.bld,areaMode:'detail'}:overwriteDetail(st);
+  return {...st.bld,areaMode:'auto'};
+}
+// v6 で保存されたデータを v7 形式にする。専有面積の決め方の情報がない古いデータは、入力値を守るため詳細モードにする
+function migrate(saved){
+  const s={...saved}; s.bld={...(saved.bld||{})};
+  if(s.bld.areaMode===undefined){ s.bld.areaMode='detail'; s.bld.detailInit=true; }
+  if(s.bld.rr===undefined) s.bld.rr=RR_DEF[Math.round(+s.ptype||0)]??RR_DEF[0];
+  if(s.propName===undefined) s.propName='';
+  return s;
+}
 function genUnits(st){
-  const b=st.bld||BLD_DEF, pr=b.price||BLD_DEF.price, {F,of,rf,B}=floorPlan(st), A=+b.typArea||0, ru=+b.resiUnit||7.5, out=[];
+  const b=st.bld||BLD_DEF, pr=b.price||BLD_DEF.price, {F,of,rf,B}=floorPlan(st), ea=effAreas(st), A=ea.typ, ru=+b.resiUnit||7.5, out=[];
   const fl=(a,z)=>a===z?`${a}F`:`${a}〜${z}F`;
-  if(B>0&&b.bUse&&b.bUse!=='none'&&+b.bArea>0){ const u=b.bUse, k=Math.max(0,+b.bRate||0)/100;
-    out.push({name:`${USE_NAME[u]} ${B===1?'B1F':`B1〜B${B}F`}`,use:u,n:B,area:+b.bArea,cur:Math.round(pr[u][0]*k),post:Math.round(pr[u][1]*k)}); }
-  if(b.f1use!=='none'&&+b.f1Area>0){ const u=b.f1use, a1=+b.f1Area;
+  if(B>0&&b.bUse&&b.bUse!=='none'&&ea.b>0){ const u=b.bUse, k=Math.max(0,+b.bRate||0)/100;
+    out.push({name:`${USE_NAME[u]} ${B===1?'B1F':`B1〜B${B}F`}`,use:u,n:B,area:ea.b,cur:Math.round(pr[u][0]*k),post:Math.round(pr[u][1]*k)}); }
+  if(b.f1use!=='none'&&ea.f1>0){ const u=b.f1use, a1=ea.f1;
     if(u==='resi'){ const n=Math.max(1,Math.round(a1/ru)); out.push({name:'住宅 1F',use:'resi',n,area:a1/n,cur:pr.resi[0],post:pr.resi[1]}); }
     else out.push({name:`${USE_NAME[u]} 1F`,use:u,n:1,area:a1,cur:pr[u][0],post:pr[u][1]}); }
   if(of>0&&A>0) out.push({name:`オフィス ${fl(2,1+of)}`,use:'office',n:of,area:A,cur:pr.office[0],post:pr.office[1]});
@@ -422,6 +510,7 @@ function coreModel(raw){
     landBasis,bookB,bookC,book,gain,taxSale,taxOpTot,gainRate,gainLabel,atSale:saleEq-taxSale
   };
 }
+// @engine-end
 </script>
 
 <script>
@@ -468,10 +557,14 @@ const PTYPES=[
 const clone=o=>JSON.parse(JSON.stringify(o));
 const DEFAULT_UNITS=PTYPES[0].units;
 const DEFAULTS={rentAdj:0,sensAxis:0}; FIELDS.forEach(([,fs])=>fs.forEach(f=>DEFAULTS[f[0]]=f[3]));
-DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210;
-const KEY='valueadd-sim-v6';
+DEFAULTS.units=DEFAULT_UNITS; DEFAULTS.ptype=0; DEFAULTS.uses=USE_DEF; DEFAULTS.rentMode=0; DEFAULTS.gfaM2=1210; DEFAULTS.propName='';
+const KEY='valueadd-sim-v7', OLD_KEY='valueadd-sim-v6';  // v6 は旧版へ戻したときのために消さずに残す
 let state={...DEFAULTS}, firstRender=true;
-try{ const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s) state={...DEFAULTS,...s}; }catch(e){}
+try{
+  const s7=localStorage.getItem(KEY), s6=s7?null:localStorage.getItem(OLD_KEY);
+  const s=s7?JSON.parse(s7):s6?migrate(JSON.parse(s6)):null;
+  if(s) state={...DEFAULTS,...s};
+}catch(e){}
 state.units=clone(state.units||DEFAULT_UNITS); state.uses={...clone(USE_DEF),...clone(state.uses||{})};
 state.bld={...clone(BLD_DEF),...clone(state.bld||{})}; state.bld.price={...clone(BLD_DEF.price),...(state.bld.price||{})};
 
@@ -497,15 +590,19 @@ function unitsHTML(){
       <div class="f wide"><label for="rentMode">賃料の設定方法</label><div class="in"><select id="rentMode">${selOpts([[0,'階数・専有面積から自動作成'],[1,'区画を手入力']],state.rentMode)}</select></div></div>
     </div>`;
   if(!manual){
+    const auto=b.areaMode!=='detail', ea=effAreas(state), av=v=>+(+v).toFixed(2);
     h+=`<div class="fields" style="margin-top:10px">
       ${numF('b-floors','data-b="floors"','地上階数','階',b.floors,1)}
-      ${numF('b-typArea','data-b="typArea"','基準階専有面積','坪/階',b.typArea,0.5,'t')}
-      <div class="f" id="w-b-f1use"><label for="b-f1use">1階の用途</label><div class="in"><select id="b-f1use" data-b="f1use">${selOpts([['retail','店舗'],['office','オフィス'],['resi','住宅'],['none','なし（共用部のみ）']],b.f1use)}</select></div></div>
-      ${numF('b-f1Area','data-b="f1Area"','1階専有面積','坪',b.f1Area,0.5,'t')}
       ${numF('b-bFloors','data-b="bFloors"','地下階数','階',b.bFloors,1)}
+      <div class="f" id="w-b-f1use"><label for="b-f1use">1階の用途</label><div class="in"><select id="b-f1use" data-b="f1use">${selOpts([['retail','店舗'],['office','オフィス'],['resi','住宅'],['none','なし（共用部のみ）']],b.f1use)}</select></div></div>
       <div class="f" id="w-b-bUse"><label for="b-bUse">地下の用途</label><div class="in"><select id="b-bUse" data-b="bUse">${selOpts([['retail','店舗'],['office','オフィス'],['none','賃貸なし（機械室等）']],b.bUse)}</select></div></div>
-      ${numF('b-bArea','data-b="bArea"','地下専有面積','坪/階',b.bArea,0.5,'t')}
+      <div class="f wide"><label for="areaMode">専有面積の決め方</label><div class="in"><select id="areaMode">${selOpts([['auto','自動（延床面積から計算）'],['detail','詳細（階ごとに入力）']],b.areaMode)}</select></div></div>
+      ${auto?`${numF('b-rr','data-b="rr"','想定レンタブル比','%',b.rr,1)}<div class="auto-formula" id="autoFormula"></div>`:''}
+      ${numF('b-typArea','data-b="typArea"','基準階専有面積','坪/階',auto?av(ea.typ):b.typArea,0.5,'t')}
+      ${numF('b-f1Area','data-b="f1Area"','1階専有面積','坪',auto?av(ea.f1):b.f1Area,0.5,'t')}
+      ${numF('b-bArea','data-b="bArea"','地下専有面積','坪/階',auto?av(ea.b):b.bArea,0.5,'t')}
       ${numF('b-bRate','data-b="bRate"','地下の坪単価（地上比）','%',b.bRate,5)}
+      ${auto?'':`<button type="button" class="btn wide" id="overwriteDetail">自動計算の値で上書き</button><p class="hint wide" style="grid-column:1/-1;margin:0">詳細の値は自動モードの値とは別に保存され、自動に切り替えても残ります。</p>`}
       ${numF('b-officeRatio','data-b="officeRatio"','オフィス比率（2階以上）','%',b.officeRatio,5)}
       ${numF('b-resiUnit','data-b="resiUnit"','住戸面積','坪/戸',b.resiUnit,0.5,'t')}
     </div>
@@ -550,8 +647,9 @@ function bindInputs(){
     if(t.id==='ptype'){
       state.ptype=+t.value;
       if(+state.rentMode===1) state.units=clone(PTYPES[state.ptype].units);
-      state.uses=clone(USE_DEF); save(); buildInputs(); render(); return;
+      state.uses=clone(USE_DEF); state.bld.rr=RR_DEF[state.ptype]??RR_DEF[0]; save(); buildInputs(); render(); return;
     }
+    if(t.id==='areaMode'){ state.bld=setAreaMode(state,t.value); save(); buildInputs(); render(); return; }
     if(t.id==='rentMode'){
       const toManual=+t.value===1;
       if(toManual) state.units=clone(genUnits(state));
@@ -590,6 +688,7 @@ function bindInputs(){
   });
   $('inputs').addEventListener('click',e=>{
     const t=e.target;
+    if(t.id==='overwriteDetail'){ state.bld=overwriteDetail(state); save(); buildInputs(); render(); return; }
     if(t.id==='addUnit'){ const lastU=state.units[state.units.length-1]||{use:'office'};
       state.units.push({name:'タイプ'+(state.units.length+1),use:lastU.use||'office',n:1,area:30,cur:10000,post:12000}); }
     else if(t.dataset.del!==undefined){ if(state.units.length<=1) return; state.units.splice(+t.dataset.del,1); }
@@ -607,27 +706,30 @@ function syncFields(){
   ['office','resi','retail'].forEach(k=>{ ['ur-','pr-'].forEach(pf=>{ const el=$(pf+k); if(el) el.classList.toggle('hide',!used.has(k)); }); });
   if(+state.rentMode!==1){
     $('w-b-officeRatio').classList.toggle('hide',+state.ptype!==2);
-    const no=state.bld.f1use==='none'; $('w-b-f1Area').classList.toggle('off',no); $('b-f1Area').disabled=no;
+    const auto=state.bld.areaMode!=='detail';
+    const no=state.bld.f1use==='none'; $('w-b-f1Area').classList.toggle('off',no); $('b-f1Area').disabled=no||auto;
     $('w-b-resiUnit').classList.toggle('hide',!used.has('resi'));
     const nb=!(Math.round(+state.bld.bFloors||0)>0), bn=state.bld.bUse==='none';
     ['bUse','bArea','bRate'].forEach(k=>$('w-b-'+k).classList.toggle('hide',nb));
-    ['bArea','bRate'].forEach(k=>{ $('w-b-'+k).classList.toggle('off',bn); $('b-'+k).disabled=bn; });
+    ['bArea','bRate'].forEach(k=>{ $('w-b-'+k).classList.toggle('off',bn); $('b-'+k).disabled=bn||(auto&&k==='bArea'); });
+    $('b-typArea').disabled=auto;
+    ['typArea','f1Area','bArea'].forEach(k=>$('w-b-'+k).classList.toggle('calc',auto));
   }
 }
 function drawSection(){
   const el=$('bldSec'); if(!el) return;
-  const b=state.bld, {F,of,rf,typ,B}=floorPlan(state);
+  const b=state.bld, {F,of,rf,typ,B}=floorPlan(state), ea=effAreas(state);
   const col={office:'var(--accent)',resi:'var(--pos)',retail:'var(--muted)',none:'var(--line)'};
   const fh=Math.max(8,Math.min(22,240/(F+B))), W=300, x0=36, bw=176, top=8, H=top+fh*(F+B)+(B?10:24);
   let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="用途の階構成">`;
   for(let f=1;f<=F;f++){
-    const u=f===1?b.f1use:(f-1<=of?'office':'resi'), a=f===1?(u==='none'?0:+b.f1Area):+b.typArea;
+    const u=f===1?b.f1use:(f-1<=of?'office':'resi'), a=+(f===1?(u==='none'?0:ea.f1):ea.typ).toFixed(1);
     const y=top+(F-f)*fh;
     s+=`<rect x="${x0}" y="${y}" width="${bw}" height="${fh-2}" rx="2" fill="${col[u]}" fill-opacity=".32" stroke="${col[u]}"/>`;
     if(fh>=13||f===1||f===F) s+=`<text x="${x0-6}" y="${y+fh/2+3}" text-anchor="end">${f}F</text>`;
     if(fh>=14) s+=`<text x="${x0+8}" y="${y+fh/2+3}" class="lbl" style="font-size:11px">${u==='none'?'共用部':USE_NAME[u]}${a?`　${a}坪（${(a/0.3025).toFixed(0)}㎡）`:''}</text>`;
   }
-  const bu=b.bUse||'none', ba=bu==='none'?0:+b.bArea;
+  const bu=b.bUse||'none', ba=bu==='none'?0:+ea.b.toFixed(1);
   for(let k=1;k<=B;k++){
     const y=top+fh*F+(k-1)*fh+2;
     s+=`<rect x="${x0}" y="${y}" width="${bw}" height="${fh-2}" rx="2" fill="${col[bu]}" fill-opacity=".32" stroke="${col[bu]}" stroke-dasharray="${bu==='none'?'3 2':''}"/>`;
@@ -636,7 +738,7 @@ function drawSection(){
   }
   s+=`<line x1="${x0-10}" x2="${x0+bw+10}" y1="${top+fh*F+1}" y2="${top+fh*F+1}" stroke="var(--ink)" stroke-width="1.5"/>`;
   if(B) s+=`<text x="${x0+bw+8}" y="${top+fh*F-3}" style="font-size:9px">GL</text>`;
-  const tx=x0+bw+12, total=(b.f1use==='none'?0:+b.f1Area)+typ*(+b.typArea)+B*ba;
+  const tx=x0+bw+12, total=(b.f1use==='none'?0:ea.f1)+typ*ea.typ+B*(bu==='none'?0:ea.b);
   s+=`<text x="${tx}" y="${top+12}" class="lbl" style="font-size:11px">専有合計</text><text x="${tx}" y="${top+27}" class="lbl" style="font-weight:700">${total.toFixed(0)}坪</text><text x="${tx}" y="${top+41}">${(total/0.3025).toFixed(0)}㎡</text>`;
   const ny=top+(typ>0?(+state.ptype===2?110:96):62);
   s+=`<text x="${tx}" y="${ny}" style="font-size:11px">地上${F}階</text>${B?`<text x="${tx}" y="${ny+14}" style="font-size:11px">地下${B}階</text>`:''}`;
@@ -657,6 +759,14 @@ function renderInputSums(r){
   if(+state.priceMode===1){ state.price=Math.round(pr); $('i-price').value=state.price; }
   else if(r.gfaT>0){ state.priceTsubo=+(pr/r.gfaT).toFixed(1); $('i-priceTsubo').value=state.priceTsubo; }
   save();
+  if(+state.rentMode!==1&&state.bld.areaMode!=='detail'){
+    const a=autoAreas(state), v=+a.per.toFixed(2);
+    ['b-typArea','b-f1Area','b-bArea'].forEach(id=>{ const el=$(id); if(el&&document.activeElement!==el) el.value=v; });
+    const fe=$('autoFormula');
+    if(fe) fe.innerHTML=a.gT>0
+      ? `延床 ${(+state.gfaM2).toLocaleString('ja-JP',{maximumFractionDigits:2})}㎡（${a.gT.toFixed(1)}坪）÷ ${a.F+a.B}階${a.B?`（地上${a.F}・地下${a.B}）`:''} × ${+state.bld.rr}% ＝ <b>${a.per.toFixed(2)}坪（${(a.per/0.3025).toFixed(1)}㎡）/階</b>${state.bld.f1use==='none'||(a.B&&state.bld.bUse==='none')?'<br>用途「なし」の階は延床・階数に含め、専有はゼロにしています。':''}`
+      : '「取得」欄で延床面積を入力すると、各階の専有面積を計算します。';
+  }
   updateConv();
   const rr=r.gfaT>0?r.nraT/r.gfaT:null;
   $('acqInfo').innerHTML=r.gfaT>0
@@ -987,11 +1097,22 @@ function drawCF(r){
   $('cf').innerHTML=b+'</tbody>';
 }
 
+function syncName(){
+  const n=String(state.propName||'').trim();
+  document.title=n?`${n} ｜ Value-Add Return Simulator`:'Value-Add Return Simulator';
+  $('printName').textContent=n||'（物件名未入力）';
+}
+function stampPrintDate(){ const d=new Date(); $('printDate').textContent=`印刷日 ${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`; }
+$('propName').value=state.propName||'';
+$('propName').addEventListener('input',e=>{ state.propName=e.target.value; save(); syncName(); });
+window.addEventListener('beforeprint',stampPrintDate);
 $('reset').addEventListener('click',()=>{
   state={...DEFAULTS}; save();
-  state.units=clone(DEFAULT_UNITS); state.uses=clone(USE_DEF); state.ptype=0; state.rentMode=0; state.bld=clone(BLD_DEF); save();
+  state.units=clone(DEFAULT_UNITS); state.uses=clone(USE_DEF); state.ptype=0; state.rentMode=0; state.bld=clone(BLD_DEF); state.propName=''; save();
+  $('propName').value=''; syncName();
   buildInputs(); $('sensAxis').value='0'; render();
 });
+syncName(); stampPrintDate();
 buildInputs(); bindInputs();
 $('sensAxis').value=String(state.sensAxis||0);
 $('sensAxis').addEventListener('change',e=>{ state.sensAxis=+e.target.value; save(); drawSens(); });
