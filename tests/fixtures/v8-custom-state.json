@@ -1,0 +1,121 @@
+{
+ "rentAdj": 0,
+ "sensAxis": 0,
+ "priceMode": 1,
+ "price": 50000,
+ "priceTsubo": 140,
+ "acq": 6,
+ "occNow": 75,
+ "capex": 6000,
+ "occReno": 70,
+ "cMonths": 10,
+ "cDelay": 2,
+ "delayCost": 200,
+ "rg": 1.2,
+ "eg": 1.5,
+ "pmRate": 2.5,
+ "bmTsubo": 600,
+ "utilCost": 300,
+ "utilInc": 240,
+ "repTsubo": 3000,
+ "ins": 30,
+ "propTax": 330,
+ "propTaxPost": 380,
+ "leaseMo": 3,
+ "opexOther": 40,
+ "capexTsubo": 4000,
+ "res": 1,
+ "amAcq": 1,
+ "amSale": 0.5,
+ "amBase": 1,
+ "amFee": 0.3,
+ "spc": 350,
+ "ltv": 70,
+ "cltv": 70,
+ "rate": 2,
+ "amort": 30,
+ "io": 2,
+ "saleMode": 0,
+ "saleBasis": 0,
+ "exitCap": 4.4,
+ "salePriceIn": 75000,
+ "N": 7,
+ "sale": 3,
+ "disc": 7,
+ "target": 10,
+ "taxMode": 1,
+ "corpRate": 30.6,
+ "indRate": 33,
+ "bldgRatio": 40,
+ "bldgLife": 20,
+ "capexLife": 15,
+ "units": [
+  {
+   "name": "基準階（2〜8F）",
+   "use": "office",
+   "n": 7,
+   "area": 35,
+   "cur": 10000,
+   "post": 12500
+  },
+  {
+   "name": "1階店舗",
+   "use": "retail",
+   "n": 1,
+   "area": 30,
+   "cur": 15000,
+   "post": 15000
+  }
+ ],
+ "ptype": 2,
+ "uses": {
+  "office": {
+   "stab": 95,
+   "L": 12,
+   "fr": 3
+  },
+  "resi": {
+   "stab": 95,
+   "L": 6,
+   "fr": 0
+  },
+  "retail": {
+   "stab": 95,
+   "L": 9,
+   "fr": 2
+  }
+ },
+ "rentMode": 0,
+ "gfaM2": 1500,
+ "propName": "テスト",
+ "ver": 8,
+ "bld": {
+  "floors": 9,
+  "bFloors": 1,
+  "bUse": "retail",
+  "bArea": 25,
+  "bRate": 70,
+  "typArea": 35,
+  "f1use": "retail",
+  "f1Area": 30,
+  "officeRatio": 50,
+  "resiUnit": 7.5,
+  "areaMode": "auto",
+  "rr": 75,
+  "detailInit": false,
+  "price": {
+   "office": [
+    10000,
+    12500
+   ],
+   "resi": [
+    9000,
+    11000
+   ],
+   "retail": [
+    15000,
+    15000
+   ]
+  }
+ }
+}
